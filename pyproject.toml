@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-interlinq"
+version = "0.1.0"
+description = "Fast AI-to-AI communication library with shared token encryption"
+readme = "README.md"
+license = {text = "GPL-2.0"}
+authors = [{name = "mupoese"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Communications",
+    "Topic :: Security :: Cryptography",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "cryptography>=3.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-asyncio>=0.18.0", 
+    "black>=21.0.0",
+    "flake8>=3.9.0",
+    "mypy>=0.910",
+]
+
+[project.urls]
+Homepage = "https://github.com/mupoese/AI-Interlinq"
+Repository = "https://github.com/mupoese/AI-Interlinq"
+Issues = "https://github.com/mupoese/AI-Interlinq/issues"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
