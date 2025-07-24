@@ -1,4 +1,8 @@
+### scripts/setup_dev.sh
+
 #!/bin/bash
+# Development environment setup script
+
 set -e
 
 echo "🚀 Setting up AI-Interlinq development environment..."
@@ -10,20 +14,18 @@ source venv/bin/activate
 # Upgrade pip
 pip install --upgrade pip
 
-# Install development dependencies
+# Install dependencies
 pip install -r requirements-dev.txt
 
-# Install package in development mode
-pip install -e .
-
-# Setup pre-commit hooks
+# Install pre-commit hooks
 pre-commit install
 
-# Create necessary directories
-mkdir -p logs
-mkdir -p config
-mkdir -p data
-mkdir -p benchmarks
+# Run initial tests
+pytest tests/ -v
+
+# Run code formatting
+black ai_interlinq/
+isort ai_interlinq/
 
 echo "✅ Development environment setup complete!"
-echo "📝 Run 'source venv/bin/activate' to activate the environment"
+echo "📝 To activate: source venv/bin/activate"
