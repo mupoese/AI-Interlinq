@@ -1,142 +1,264 @@
 # ai_interlinq/utils/parser.py
-"""Message parsing utilities for AI-Interlinq."""
+
+"""
+Message Parser for AI-Interlinq
+Advanced parsing utilities for AI communication messages.
+"""
 
 import json
 import re
-from typing import Dict, Any, Optional, List, Tuple
-from dataclasses import asdict
+from typing import Dict, Any, Optional, List, Union
+from dataclasses import dataclass
+from datetime import datetime
 
-from ..core.communication_protocol import Message, MessageHeader, MessagePayload, MessageType, Priority
-from ..exceptions import ValidationError
-from ..utils.logging import get_logger
+from ..core.communication_protocol import Message, MessageType, Priority
+
+
+@dataclass
+class ParseResult:
+    """Result of message parsing operation."""
+    success: bool
+    message: Optional[Message] = None
+    error: Optional[str] = None
+    warnings: List[str] = None
+    
+    def __post_init__(self):
+        if self.warnings is None:
+            self.warnings = []
 
 
 class MessageParser:
-    """Parses and validates AI-Interlinq messages."""
+    """Advanced message parser with validation and error handling."""
     
     def __init__(self):
-        self.logger = get_logger("message_parser")
+        """Initialize message parser."""
+        self._validation_rules = {}
+        self._custom_parsers = {}
+        self._setup_default_rules()
     
-    def parse_json_message(self, json_str: str) -> Optional[Message]:
-        """Parse JSON string into Message object."""
+    def _setup_default_rules(self):
+        """Setup default validation rules."""
+        self._validation_rules = {
+            'message_id': {
+                'required': True,
+                'type': str,
+                'pattern': r'^[a-zA-Z0-9_\-]+$',
+                'max_length': 128
+            },
+            'sender_id': {
+                'required': True,
+                'type': str,
+                'min_length': 1,
+                'max_length': 64
+            },
+            'recipient_id': {
+                'required': True,
+                'type': str,
+                'min_length': 1,
+                'max_length': 64
+            },
+            'command': {
+                'required': True,
+                'type': str,
+                'min_length': 1,
+                'max_length': 32
+            },
+            'session_id': {
+                'required': True,
+                'type': str,
+                'pattern': r'^[a-zA-Z0-9_\-]+$'
+            }
+        }
+    
+    def parse_message(self, raw_data: Union[str, bytes, Dict]) -> ParseResult:
+        """
+        Parse raw message data into a Message object.
+        
+        Args:
+            raw_data: Raw message data (JSON string, bytes, or dict)
+            
+        Returns:
+            ParseResult with success status and parsed message or error
+        """
         try:
-            data = json.loads(json_str)
-            return self._dict_to_message(data)
+            # Handle different input types
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode('utf-8')
+            
+            if isinstance(raw_data, str):
+                data = json.loads(raw_data)
+            elif isinstance(raw_data, dict):
+                data = raw_data
+            else:
+                return ParseResult(
+                    success=False,
+                    error=f"Unsupported data type: {type(raw_data)}"
+                )
+            
+            # Validate structure
+            validation_result = self._validate_structure(data)
+            if not validation_result.success:
+                return validation_result
+            
+            # Parse message components
+            message = self._parse_message_components(data)
+            if not message:
+                return ParseResult(
+                    success=False,
+                    error="Failed to parse message components"
+                )
+            
+            return ParseResult(
+                success=True,
+                message=message,
+                warnings=validation_result.warnings
+            )
+            
         except json.JSONDecodeError as e:
-            self.logger.error(f"JSON parsing error: {e}")
-            return None
+            return ParseResult(
+                success=False,
+                error=f"Invalid JSON: {str(e)}"
+            )
         except Exception as e:
-            self.logger.error(f"Message parsing error: {e}")
-            return None
+            return ParseResult(
+                success=False,
+                error=f"Parse error: {str(e)}"
+            )
     
-    def parse_compact_message(self, compact_str: str) -> Optional[Message]:
-        """Parse compact message format: TYPE|SENDER|RECIPIENT|COMMAND|DATA"""
+    def _validate_structure(self, data: Dict[str, Any]) -> ParseResult:
+        """Validate message structure."""
+        warnings = []
+        
+        # Check required top-level fields
+        required_fields = ['header', 'payload']
+        for field in required_fields:
+            if field not in data:
+                return ParseResult(
+                    success=False,
+                    error=f"Missing required field: {field}"
+                )
+        
+        # Validate header fields
+        header = data['header']
+        for field, rules in self._validation_rules.items():
+            if field in ['command']:  # Skip payload fields
+                continue
+                
+            if rules.get('required', False) and field not in header:
+                return ParseResult(
+                    success=False,
+                    error=f"Missing required header field: {field}"
+                )
+            
+            if field in header:
+                value = header[field]
+                validation_error = self._validate_field(field, value, rules)
+                if validation_error:
+                    return ParseResult(success=False, error=validation_error)
+        
+        # Validate payload
+        payload = data['payload']
+        if 'command' not in payload:
+            return ParseResult(
+                success=False,
+                error="Missing required payload field: command"
+            )
+        
+        command_rules = self._validation_rules.get('command', {})
+        validation_error = self._validate_field('command', payload['command'], command_rules)
+        if validation_error:
+            return ParseResult(success=False, error=validation_error)
+        
+        # Check for deprecated fields
+        deprecated_fields = ['legacy_field', 'old_format']
+        for field in deprecated_fields:
+            if field in header or field in payload:
+                warnings.append(f"Deprecated field found: {field}")
+        
+        return ParseResult(success=True, warnings=warnings)
+    
+    def _validate_field(self, field_name: str, value: Any, rules: Dict[str, Any]) -> Optional[str]:
+        """Validate a single field against rules."""
+        # Type validation
+        expected_type = rules.get('type')
+        if expected_type and not isinstance(value, expected_type):
+            return f"Field {field_name} must be of type {expected_type.__name__}"
+        
+        # String validations
+        if isinstance(value, str):
+            min_length = rules.get('min_length')
+            if min_length and len(value) < min_length:
+                return f"Field {field_name} must be at least {min_length} characters"
+            
+            max_length = rules.get('max_length')
+            if max_length and len(value) > max_length:
+                return f"Field {field_name} must be at most {max_length} characters"
+            
+            pattern = rules.get('pattern')
+            if pattern and not re.match(pattern, value):
+                return f"Field {field_name} does not match required pattern"
+        
+        return None
+    
+    def _parse_message_components(self, data: Dict[str, Any]) -> Optional[Message]:
+        """Parse message components into Message object."""
         try:
-            parts = compact_str.split('|', 4)
-            if len(parts) != 5:
-                return None
+            from ..core.communication_protocol import MessageHeader, MessagePayload
             
-            msg_type, sender, recipient, command, data_str = parts
+            header_data = data['header']
+            payload_data = data['payload']
             
-            # Parse data as JSON
-            data = json.loads(data_str) if data_str else {}
-            
-            # Create message components
+            # Parse header
             header = MessageHeader(
-                message_id=f"{sender}_{hash(compact_str)}",
-                message_type=MessageType(msg_type.lower()),
-                sender_id=sender,
-                recipient_id=recipient,
-                timestamp=0.0,  # Will be set by protocol
-                priority=Priority.NORMAL,
-                session_id="compact_session"
+                message_id=header_data['message_id'],
+                message_type=MessageType(header_data['message_type']),
+                sender_id=header_data['sender_id'],
+                recipient_id=header_data['recipient_id'],
+                timestamp=header_data['timestamp'],
+                priority=Priority(header_data['priority']),
+                session_id=header_data['session_id'],
+                protocol_version=header_data.get('protocol_version', '1.0')
             )
             
+            # Parse payload
             payload = MessagePayload(
-                command=command,
-                data=data
+                command=payload_data['command'],
+                data=payload_data.get('data', {}),
+                metadata=payload_data.get('metadata')
             )
             
-            return Message(header=header, payload=payload)
+            return Message(
+                header=header,
+                payload=payload,
+                signature=data.get('signature')
+            )
             
-        except Exception as e:
-            self.logger.error(f"Compact message parsing error: {e}")
+        except (KeyError, ValueError, TypeError) as e:
             return None
     
-    def _dict_to_message(self, data: Dict[str, Any]) -> Message:
-        """Convert dictionary to Message object."""
-        header_data = data["header"]
-        payload_data = data["payload"]
-        
-        header = MessageHeader(
-            message_id=header_data["message_id"],
-            message_type=MessageType(header_data["message_type"]),
-            sender_id=header_data["sender_id"],
-            recipient_id=header_data["recipient_id"],
-            timestamp=header_data["timestamp"],
-            priority=Priority(header_data["priority"]),
-            session_id=header_data["session_id"],
-            protocol_version=header_data.get("protocol_version", "1.0")
-        )
-        
-        payload = MessagePayload(
-            command=payload_data["command"],
-            data=payload_data["data"],
-            metadata=payload_data.get("metadata")
-        )
-        
-        return Message(
-            header=header,
-            payload=payload,
-            signature=data.get("signature")
-        )
+    def register_custom_parser(self, message_type: str, parser_func):
+        """Register a custom parser for specific message types."""
+        self._custom_parsers[message_type] = parser_func
     
-    def extract_commands(self, text: str) -> List[str]:
-        """Extract command patterns from text."""
-        # Pattern for command extraction: @command or /command
-        command_pattern = r'[@/](\w+)'
-        matches = re.findall(command_pattern, text)
-        return matches
+    def add_validation_rule(self, field: str, rules: Dict[str, Any]):
+        """Add custom validation rule for a field."""
+        self._validation_rules[field] = rules
     
-    def parse_key_value_pairs(self, text: str) -> Dict[str, str]:
-        """Parse key=value pairs from text."""
-        # Pattern for key=value pairs
-        kv_pattern = r'(\w+)=(["\']?)([^"\'\\n]*)\2'
-        matches = re.findall(kv_pattern, text)
-        return {key: value for key, _, value in matches}
+    def parse_batch(self, raw_messages: List[Union[str, Dict]]) -> List[ParseResult]:
+        """Parse multiple messages in batch."""
+        results = []
+        for raw_message in raw_messages:
+            result = self.parse_message(raw_message)
+            results.append(result)
+        return results
     
-    def validate_message_format(self, data: Dict[str, Any]) -> Tuple[bool, str]:
-        """Validate message format against schema."""
-        required_header_fields = [
-            "message_id", "message_type", "sender_id", 
-            "recipient_id", "timestamp", "priority", "session_id"
-        ]
-        
-        required_payload_fields = ["command", "data"]
-        
-        # Check header
-        if "header" not in data:
-            return False, "Missing header"
-        
-        header = data["header"]
-        for field in required_header_fields:
-            if field not in header:
-                return False, f"Missing header field: {field}"
-        
-        # Check payload
-        if "payload" not in data:
-            return False, "Missing payload"
-        
-        payload = data["payload"]
-        for field in required_payload_fields:
-            if field not in payload:
-                return False, f"Missing payload field: {field}"
-        
-        # Validate enums
-        try:
-            MessageType(header["message_type"])
-            Priority(header["priority"])
-        except ValueError as e:
-            return False, f"Invalid enum value: {e}"
-        
-        return True, "Valid"
+    def extract_metadata(self, message: Message) -> Dict[str, Any]:
+        """Extract useful metadata from a message."""
+        return {
+            'message_age': datetime.now().timestamp() - message.header.timestamp,
+            'message_size': len(str(message)),
+            'has_metadata': message.payload.metadata is not None,
+            'data_keys': list(message.payload.data.keys()) if message.payload.data else [],
+            'priority_level': message.header.priority.name,
+            'message_type': message.header.message_type.name
+        }
