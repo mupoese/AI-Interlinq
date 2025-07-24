@@ -1,23 +1,14 @@
-# ai_interlinq/cli/__init__.py
+# File: /ai_interlinq/cli/__init__.py
+# Directory: /ai_interlinq/cli
+
 """
-Command Line Interface for AI-Interlinq.
-File: ai_interlinq/cli/__init__.py  
-Directory: ai_interlinq/cli/
+CLI components for AI-Interlinq framework.
 """
 
-from .main import cli_main, main
-from .benchmark import BenchmarkSuite, BenchmarkConfig, BenchmarkResult, benchmark
-from .monitor import SystemMonitor, MonitorConfig, HealthStatus, monitor
+from .benchmark import BenchmarkCLI
+from .monitor import MonitorCLI
 
 __all__ = [
-    "cli_main",
-    "main", 
-    "BenchmarkSuite",
-    "BenchmarkConfig", 
-    "BenchmarkResult",
-    "benchmark",
-    "SystemMonitor",
-    "MonitorConfig",
-    "HealthStatus", 
-    "monitor"
+    "BenchmarkCLI",
+    "MonitorCLI"
 ]
