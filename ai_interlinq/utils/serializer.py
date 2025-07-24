@@ -1,149 +1,305 @@
 # ai_interlinq/utils/serializer.py
-"""Message serialization utilities for AI-Interlinq."""
+
+"""
+Message Serializer for AI-Interlinq
+Advanced serialization utilities with multiple format support.
+"""
 
 import json
 import pickle
 import msgpack
-from typing import Dict, Any, Optional, Union
+import base64
+import gzip
+from typing import Dict, Any, Optional, Union, List
 from dataclasses import asdict
+from enum import Enum
 
 from ..core.communication_protocol import Message
-from ..utils.logging import get_logger
 
 
-class SerializationError(Exception):
-    """Serialization error."""
-    pass
+class SerializationFormat(Enum):
+    """Supported serialization formats."""
+    JSON = "json"
+    MSGPACK = "msgpack"
+    PICKLE = "pickle"
+    BINARY = "binary"
+
+
+class CompressionType(Enum):
+    """Supported compression types."""
+    NONE = "none"
+    GZIP = "gzip"
 
 
 class MessageSerializer:
-    """Serializes AI-Interlinq messages in various formats."""
+    """Advanced message serializer with multiple format support."""
     
-    def __init__(self):
-        self.logger = get_logger("message_serializer")
+    def __init__(self, default_format: SerializationFormat = SerializationFormat.JSON):
+        """
+        Initialize message serializer.
+        
+        Args:
+            default_format: Default serialization format
+        """
+        self.default_format = default_format
+        self._serializers = {
+            SerializationFormat.JSON: self._serialize_json,
+            SerializationFormat.MSGPACK: self._serialize_msgpack,
+            SerializationFormat.PICKLE: self._serialize_pickle,
+            SerializationFormat.BINARY: self._serialize_binary
+        }
+        self._deserializers = {
+            SerializationFormat.JSON: self._deserialize_json,
+            SerializationFormat.MSGPACK: self._deserialize_msgpack,
+            SerializationFormat.PICKLE: self._deserialize_pickle,
+            SerializationFormat.BINARY: self._deserialize_binary
+        }
     
-    def to_json(self, message: Message, compact: bool = False) -> str:
+    def serialize(
+        self,
+        message: Message,
+        format: Optional[SerializationFormat] = None,
+        compress: CompressionType = CompressionType.NONE,
+        **kwargs
+    ) -> bytes:
+        """
+        Serialize a message to bytes.
+        
+        Args:
+            message: Message to serialize
+            format: Serialization format
+            compress: Compression type
+            **kwargs: Additional serialization options
+            
+        Returns:
+            Serialized message as bytes
+        """
+        format = format or self.default_format
+        
+        # Get serializer
+        serializer = self._serializers.get(format)
+        if not serializer:
+            raise ValueError(f"Unsupported serialization format: {format}")
+        
+        # Serialize message
+        data = serializer(message, **kwargs)
+        
+        # Apply compression if requested
+        if compress == CompressionType.GZIP:
+            data = gzip.compress(data)
+        
+        return data
+    
+    def deserialize(
+        self,
+        data: bytes,
+        format: Optional[SerializationFormat] = None,
+        compressed: CompressionType = CompressionType.NONE
+    ) -> Message:
+        """
+        Deserialize bytes to a message.
+        
+        Args:
+            data: Serialized message data
+            format: Serialization format
+            compressed: Compression type used
+            
+        Returns:
+            Deserialized Message object
+        """
+        format = format or self.default_format
+        
+        # Decompress if needed
+        if compressed == CompressionType.GZIP:
+            data = gzip.decompress(data)
+        
+        # Get deserializer
+        deserializer = self._deserializers.get(format)
+        if not deserializer:
+            raise ValueError(f"Unsupported serialization format: {format}")
+        
+        return deserializer(data)
+    
+    def _serialize_json(self, message: Message, indent: Optional[int] = None) -> bytes:
         """Serialize message to JSON."""
-        try:
-            message_dict = {
-                "header": {
-                    **asdict(message.header),
-                    "message_type": message.header.message_type.value,
-                    "priority": message.header.priority.value
-                },
-                "payload": asdict(message.payload),
-                "signature": message.signature
-            }
-            
-            if compact:
-                return json.dumps(message_dict, separators=(',', ':'))
-            else:
-                return json.dumps(message_dict, indent=2)
-                
-        except Exception as e:
-            self.logger.error(f"JSON serialization error: {e}")
-            raise SerializationError(f"JSON serialization failed: {e}")
+        message_dict = {
+            "header": {
+                **asdict(message.header),
+                "message_type": message.header.message_type.value,
+                "priority": message.header.priority.value
+            },
+            "payload": asdict(message.payload),
+            "signature": message.signature
+        }
+        
+        json_str = json.dumps(message_dict, indent=indent, separators=(',', ':'))
+        return json_str.encode('utf-8')
     
-    def to_msgpack(self, message: Message) -> bytes:
-        """Serialize message to MessagePack binary format."""
-        try:
-            message_dict = {
-                "header": {
-                    **asdict(message.header),
-                    "message_type": message.header.message_type.value,
-                    "priority": message.header.priority.value
-                },
-                "payload": asdict(message.payload),
-                "signature": message.signature
-            }
-            
-            return msgpack.packb(message_dict)
-            
-        except Exception as e:
-            self.logger.error(f"MessagePack serialization error: {e}")
-            raise SerializationError(f"MessagePack serialization failed: {e}")
-    
-    def to_compact_string(self, message: Message) -> str:
-        """Serialize to compact string format."""
-        try:
-            data_json = json.dumps(message.payload.data, separators=(',', ':'))
-            
-            compact = f"{message.header.message_type.value}|" \
-                     f"{message.header.sender_id}|" \
-                     f"{message.header.recipient_id}|" \
-                     f"{message.payload.command}|" \
-                     f"{data_json}"
-            
-            return compact
-            
-        except Exception as e:
-            self.logger.error(f"Compact serialization error: {e}")
-            raise SerializationError(f"Compact serialization failed: {e}")
-    
-    def to_binary(self, message: Message) -> bytes:
-        """Serialize message to binary format using pickle."""
-        try:
-            return pickle.dumps(message)
-        except Exception as e:
-            self.logger.error(f"Binary serialization error: {e}")
-            raise SerializationError(f"Binary serialization failed: {e}")
-    
-    def from_json(self, json_str: str) -> Message:
-        """Deserialize message from JSON."""
-        from .parser import MessageParser
+    def _deserialize_json(self, data: bytes) -> Message:
+        """Deserialize JSON to message."""
+        from ..utils.parser import MessageParser
+        
         parser = MessageParser()
-        message = parser.parse_json_message(json_str)
+        json_str = data.decode('utf-8')
+        result = parser.parse_message(json_str)
         
-        if not message:
-            raise SerializationError("Failed to deserialize JSON message")
+        if not result.success:
+            raise ValueError(f"Failed to deserialize JSON message: {result.error}")
         
-        return message
+        return result.message
     
-    def from_msgpack(self, data: bytes) -> Message:
-        """Deserialize message from MessagePack."""
+    def _serialize_msgpack(self, message: Message) -> bytes:
+        """Serialize message to MessagePack."""
         try:
-            message_dict = msgpack.unpackb(data, raw=False)
-            from .parser import MessageParser
-            parser = MessageParser()
-            return parser._dict_to_message(message_dict)
-            
-        except Exception as e:
-            self.logger.error(f"MessagePack deserialization error: {e}")
-            raise SerializationError(f"MessagePack deserialization failed: {e}")
+            import msgpack
+        except ImportError:
+            raise ImportError("msgpack-python is required for MessagePack serialization")
+        
+        message_dict = {
+            "header": {
+                **asdict(message.header),
+                "message_type": message.header.message_type.value,
+                "priority": message.header.priority.value
+            },
+            "payload": asdict(message.payload),
+            "signature": message.signature
+        }
+        
+        return msgpack.packb(message_dict, use_bin_type=True)
     
-    def from_compact_string(self, compact_str: str) -> Message:
-        """Deserialize from compact string format."""
-        from .parser import MessageParser
+    def _deserialize_msgpack(self, data: bytes) -> Message:
+        """Deserialize MessagePack to message."""
+        try:
+            import msgpack
+        except ImportError:
+            raise ImportError("msgpack-python is required for MessagePack deserialization")
+        
+        from ..utils.parser import MessageParser
+        
+        message_dict = msgpack.unpackb(data, raw=False)
         parser = MessageParser()
-        message = parser.parse_compact_message(compact_str)
+        result = parser.parse_message(message_dict)
         
-        if not message:
-            raise SerializationError("Failed to deserialize compact message")
+        if not result.success:
+            raise ValueError(f"Failed to deserialize MessagePack message: {result.error}")
         
-        return message
+        return result.message
     
-    def from_binary(self, data: bytes) -> Message:
-        """Deserialize message from binary format."""
-        try:
-            return pickle.loads(data)
-        except Exception as e:
-            self.logger.error(f"Binary deserialization error: {e}")
-            raise SerializationError(f"Binary deserialization failed: {e}")
+    def _serialize_pickle(self, message: Message) -> bytes:
+        """Serialize message to Pickle."""
+        return pickle.dumps(message)
     
-    def get_serialized_size(self, message: Message, format: str = "json") -> int:
-        """Get serialized size of message in bytes."""
-        try:
-            if format == "json":
-                return len(self.to_json(message, compact=True).encode('utf-8'))
-            elif format == "msgpack":
-                return len(self.to_msgpack(message))
-            elif format == "compact":
-                return len(self.to_compact_string(message).encode('utf-8'))
-            elif format == "binary":
-                return len(self.to_binary(message))
-            else:
-                raise ValueError(f"Unknown format: {format}")
+    def _deserialize_pickle(self, data: bytes) -> Message:
+        """Deserialize Pickle to message."""
+        return pickle.loads(data)
+    
+    def _serialize_binary(self, message: Message) -> bytes:
+        """Serialize message to custom binary format."""
+        # Custom binary format for high performance
+        json_data = self._serialize_json(message)
+        header = len(json_data).to_bytes(4, byteorder='big')
+        return header + json_data
+    
+    def _deserialize_binary(self, data: bytes) -> Message:
+        """Deserialize custom binary format to message."""
+        if len(data) < 4:
+            raise ValueError("Invalid binary message format")
+        
+        length = int.from_bytes(data[:4], byteorder='big')
+        json_data = data[4:4+length]
+        
+        return self._deserialize_json(json_data)
+    
+    def serialize_batch(
+        self,
+        messages: List[Message],
+        format: Optional[SerializationFormat] = None,
+        compress: CompressionType = CompressionType.NONE
+    ) -> bytes:
+        """Serialize multiple messages in batch."""
+        format = format or self.default_format
+        
+        # Serialize each message
+        serialized_messages = []
+        for message in messages:
+            serialized = self.serialize(message, format, CompressionType.NONE)
+            serialized_messages.append(serialized)
+        
+        # Create batch format
+        batch_data = {
+            "format": format.value,
+            "count": len(messages),
+            "messages": [base64.b64encode(msg).decode('ascii') for msg in serialized_messages]
+        }
+        
+        batch_json = json.dumps(batch_data).encode('utf-8')
+        
+        # Apply compression
+        if compress == CompressionType.GZIP:
+            batch_json = gzip.compress(batch_json)
+        
+        return batch_json
+    
+    def deserialize_batch(
+        self,
+        data: bytes,
+        compressed: CompressionType = CompressionType.NONE
+    ) -> List[Message]:
+        """Deserialize batch of messages."""
+        # Decompress if needed
+        if compressed == CompressionType.GZIP:
+            data = gzip.decompress(data)
+        
+        # Parse batch format
+        batch_data = json.loads(data.decode('utf-8'))
+        format = SerializationFormat(batch_data["format"])
+        
+        # Deserialize each message
+        messages = []
+        for encoded_msg in batch_data["messages"]:
+            msg_data = base64.b64decode(encoded_msg.encode('ascii'))
+            message = self.deserialize(msg_data, format, CompressionType.NONE)
+            messages.append(message)
+        
+        return messages
+    
+    def get_serialization_stats(self, message: Message) -> Dict[str, Any]:
+        """Get serialization statistics for different formats."""
+        stats = {}
+        
+        for format in SerializationFormat:
+            try:
+                serialized = self.serialize(message, format)
+                compressed = self.serialize(message, format, CompressionType.GZIP)
                 
-        except Exception as e:
-            self.logger.error(f"Size calculation error: {e}")
-            return 0
+                stats[format.value] = {
+                    "size": len(serialized),
+                    "compressed_size": len(compressed),
+                    "compression_ratio": len(serialized) / len(compressed) if compressed else 1.0
+                }
+            except Exception as e:
+                stats[format.value] = {"error": str(e)}
+        
+        return stats
+    
+    def optimize_for_size(self, message: Message) -> bytes:
+        """Serialize with optimal settings for minimum size."""
+        # Try different formats and return the smallest
+        best_size = float('inf')
+        best_data = None
+        
+        for format in SerializationFormat:
+            try:
+                data = self.serialize(message, format, CompressionType.GZIP)
+                if len(data) < best_size:
+                    best_size = len(data)
+                    best_data = data
+            except Exception:
+                continue
+        
+        return best_data or self.serialize(message, SerializationFormat.JSON, CompressionType.GZIP)
+    
+    def optimize_for_speed(self, message: Message) -> bytes:
+        """Serialize with optimal settings for speed."""
+        # Binary format is typically fastest
+        return self.serialize(message, SerializationFormat.BINARY, CompressionType.NONE)
