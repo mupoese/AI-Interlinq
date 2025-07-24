@@ -1,7 +1,17 @@
 # ai_interlinq/transport/__init__.py
-from .base import BaseTransport
-from .websocket import WebSocketTransport
-from .tcp import TCPTransport
-from .redis_transport import RedisTransport
+"""Transport layer implementations."""
 
-__all__ = ["BaseTransport", "WebSocketTransport", "TCPTransport", "RedisTransport"]
+from .base import BaseTransport, TransportConfig, TransportError
+from .tcp import TCPTransport
+from .websocket import WebSocketTransport
+from .redis import RedisTransport, RedisConfig
+
+__all__ = [
+    "BaseTransport",
+    "TransportConfig", 
+    "TransportError",
+    "TCPTransport",
+    "WebSocketTransport",
+    "RedisTransport",
+    "RedisConfig"
+]
