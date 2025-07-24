@@ -1,455 +1,495 @@
-# ai_interlinq/middleware/compression.py
-"""
-Compression Middleware for AI-Interlinq
-Provides intelligent compression and decompression for AI communication messages.
+# File: /ai_interlinq/middleware/compression.py
+# Directory: /ai_interlinq/middleware
 
-File: ai_interlinq/middleware/compression.py
-Directory: ai_interlinq/middleware/
+"""
+Compression middleware for AI-Interlinq framework.
+Provides multi-algorithm compression with auto-selection based on content type and size.
 """
 
 import gzip
 import zlib
-import bz2
-import lzma
-import time
-from typing import Dict, Optional, Tuple, Any, List, Union
-from dataclasses import dataclass, field
+import lz4.frame
+import brotli
+import json
+import pickle
+from typing import Dict, Any, Tuple, Optional, Callable, Union
+from dataclasses import dataclass
 from enum import Enum
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import logging
+import time
 
-from ..core.communication_protocol import Message
-from ..utils.logging import get_logger
-from ..utils.performance import PerformanceMonitor
-
+logger = logging.getLogger(__name__)
 
 class CompressionAlgorithm(Enum):
     """Supported compression algorithms."""
     NONE = "none"
     GZIP = "gzip"
     ZLIB = "zlib"
-    BZ2 = "bz2"
-    LZMA = "lzma"
-
-
-class CompressionLevel(Enum):
-    """Compression levels for performance vs ratio trade-off."""
-    FAST = 1      # Fastest compression, lower ratio
-    BALANCED = 6  # Balanced performance and ratio
-    BEST = 9      # Best compression ratio, slower
-
+    LZ4 = "lz4"
+    BROTLI = "brotli"
 
 @dataclass
-class CompressionConfig:
-    """Configuration for compression middleware."""
-    algorithm: CompressionAlgorithm = CompressionAlgorithm.GZIP
-    level: CompressionLevel = CompressionLevel.BALANCED
-    min_size_threshold: int = 1024  # Only compress messages larger than 1KB
-    max_size_threshold: int = 10 * 1024 * 1024  # Don't compress messages larger than 10MB
-    adaptive_compression: bool = True  # Automatically choose best algorithm
-    cache_compressed: bool = True  # Cache compressed results
-    enable_async: bool = True  # Use async processing for large messages
-
-
-@dataclass
-class CompressionStats:
-    """Statistics for compression operations."""
-    total_compressed: int = 0
-    total_decompressed: int = 0
-    bytes_saved: int = 0
-    compression_time: float = 0.0
-    decompression_time: float = 0.0
-    algorithm_usage: Dict[str, int] = field(default_factory=dict)
-    cache_hits: int = 0
-    cache_misses: int = 0
-
+class CompressionResult:
+    """Compression operation result."""
+    algorithm: CompressionAlgorithm
+    original_size: int
+    compressed_size: int
+    compression_ratio: float
+    compression_time: float
+    data: bytes
 
 class CompressionMiddleware:
-    """Advanced compression middleware with intelligent algorithm selection."""
+    """
+    Multi-algorithm compression middleware with intelligent selection.
     
-    def __init__(self, 
-                 config: Optional[CompressionConfig] = None,
-                 max_workers: int = 4):
+    Features:
+    - Multiple compression algorithms (gzip, zlib, LZ4, Brotli)
+    - Automatic algorithm selection based on content
+    - Size-based compression thresholds
+    - Performance metrics tracking
+    - Content-type aware compression
+    """
+    
+    def __init__(
+        self,
+        min_size_threshold: int = 1024,
+        max_compression_time: float = 0.5,
+        preferred_algorithm: CompressionAlgorithm = CompressionAlgorithm.LZ4,
+        auto_select: bool = True
+    ):
         """
         Initialize compression middleware.
         
         Args:
-            config: Compression configuration
-            max_workers: Maximum worker threads for async compression
+            min_size_threshold: Minimum size in bytes to compress
+            max_compression_time: Maximum compression time in seconds
+            preferred_algorithm: Default compression algorithm
+            auto_select: Enable automatic algorithm selection
         """
-        self.config = config or CompressionConfig()
-        self.logger = get_logger("compression_middleware")
-        self.performance_monitor = PerformanceMonitor()
+        self.min_size_threshold = min_size_threshold
+        self.max_compression_time = max_compression_time
+        self.preferred_algorithm = preferred_algorithm
+        self.auto_select = auto_select
         
-        # Statistics tracking
-        self.stats = CompressionStats()
-        
-        # Thread pool for async operations
-        self.executor = ThreadPoolExecutor(max_workers=max_workers) if config.enable_async else None
-        
-        # Compression cache
-        self._compression_cache: Dict[str, Tuple[bytes, CompressionAlgorithm]] = {}
-        self._cache_max_size = 1000
-        
-        # Algorithm performance tracking
-        self._algorithm_performance: Dict[CompressionAlgorithm, Dict[str, float]] = {
-            alg: {"avg_ratio": 0.0, "avg_time": 0.0, "count": 0}
-            for alg in CompressionAlgorithm
+        # Algorithm configurations
+        self.algorithm_configs = {
+            CompressionAlgorithm.GZIP: {
+                "compresslevel": 6,
+                "good_for": ["text", "json", "xml"],
+                "speed": "medium",
+                "ratio": "high"
+            },
+            CompressionAlgorithm.ZLIB: {
+                "level": 6,
+                "good_for": ["general", "mixed"],
+                "speed": "medium", 
+                "ratio": "medium"
+            },
+            CompressionAlgorithm.LZ4: {
+                "compression_level": 1,
+                "good_for": ["realtime", "streaming"],
+                "speed": "very_fast",
+                "ratio": "low"
+            },
+            CompressionAlgorithm.BROTLI: {
+                "quality": 4,
+                "good_for": ["web", "text", "repetitive"],
+                "speed": "slow",
+                "ratio": "very_high"
+            }
         }
         
-        # Setup compression functions
-        self._compressors = {
-            CompressionAlgorithm.GZIP: self._compress_gzip,
-            CompressionAlgorithm.ZLIB: self._compress_zlib,
-            CompressionAlgorithm.BZ2: self._compress_bz2,
-            CompressionAlgorithm.LZMA: self._compress_lzma,
+        # Performance tracking
+        self.compression_stats = {
+            "total_compressions": 0,
+            "total_decompressions": 0,
+            "bytes_compressed": 0,
+            "bytes_saved": 0,
+            "avg_compression_time": 0.0,
+            "algorithm_usage": {alg: 0 for alg in CompressionAlgorithm}
         }
         
-        self._decompressors = {
-            CompressionAlgorithm.GZIP: self._decompress_gzip,
-            CompressionAlgorithm.ZLIB: self._decompress_zlib,
-            CompressionAlgorithm.BZ2: self._decompress_bz2,
-            CompressionAlgorithm.LZMA: self._decompress_lzma,
-        }
-    
-    async def compress_message(self, 
-                             data: Union[str, bytes], 
-                             algorithm: Optional[CompressionAlgorithm] = None) -> Tuple[bytes, CompressionAlgorithm, Dict[str, Any]]:
+    def compress(
+        self,
+        data: Union[str, bytes, Dict[str, Any]],
+        algorithm: Optional[CompressionAlgorithm] = None,
+        content_type: Optional[str] = None
+    ) -> CompressionResult:
         """
-        Compress message data with intelligent algorithm selection.
+        Compress data using specified or auto-selected algorithm.
         
         Args:
-            data: Data to compress (string or bytes)
-            algorithm: Specific algorithm to use (None for auto-selection)
+            data: Data to compress
+            algorithm: Compression algorithm to use
+            content_type: Content type hint for algorithm selection
             
         Returns:
-            Tuple of (compressed_data, algorithm_used, metadata)
+            CompressionResult with compressed data and metadata
         """
-        timer_id = self.performance_monitor.start_timer("message_compression")
+        start_time = time.time()
         
-        try:
-            # Convert to bytes if needed
-            if isinstance(data, str):
-                data_bytes = data.encode('utf-8')
-            else:
-                data_bytes = data
-            
-            original_size = len(data_bytes)
-            
-            # Check size thresholds
-            if original_size < self.config.min_size_threshold:
-                self.performance_monitor.end_timer(timer_id)
-                return data_bytes, CompressionAlgorithm.NONE, {
-                    "original_size": original_size,
-                    "compressed_size": original_size,
-                    "compression_ratio": 1.0,
-                    "reason": "Below minimum threshold"
-                }
-            
-            if original_size > self.config.max_size_threshold:
-                self.performance_monitor.end_timer(timer_id)
-                return data_bytes, CompressionAlgorithm.NONE, {
-                    "original_size": original_size,
-                    "compressed_size": original_size,
-                    "compression_ratio": 1.0,
-                    "reason": "Above maximum threshold"
-                }
-            
-            # Check cache first
-            cache_key = self._get_cache_key(data_bytes, algorithm)
-            if self.config.cache_compressed and cache_key in self._compression_cache:
-                cached_data, cached_algorithm = self._compression_cache[cache_key]
-                self.stats.cache_hits += 1
+        # Convert data to bytes
+        if isinstance(data, str):
+            data_bytes = data.encode('utf-8')
+            if not content_type:
+                content_type = "text"
+        elif isinstance(data, dict):
+            data_bytes = json.dumps(data).encode('utf-8')
+            if not content_type:
+                content_type = "json"
+        elif isinstance(data, bytes):
+            data_bytes = data
+        else:
+            # Serialize using pickle for complex objects
+            data_bytes = pickle.dumps(data)
+            if not content_type:
+                content_type = "binary"
                 
-                metadata = {
-                    "original_size": original_size,
-                    "compressed_size": len(cached_data),
-                    "compression_ratio": original_size / len(cached_data),
-                    "cached": True
-                }
-                
-                self.performance_monitor.end_timer(timer_id)
-                return cached_data, cached_algorithm, metadata
-            
-            self.stats.cache_misses += 1
-            
-            # Select compression algorithm
-            if algorithm is None:
-                if self.config.adaptive_compression:
-                    algorithm = await self._select_best_algorithm(data_bytes)
-                else:
-                    algorithm = self.config.algorithm
-            
-            # Perform compression
-            if self.config.enable_async and original_size > 50000:  # Use async for large messages
-                compressed_data = await self._compress_async(data_bytes, algorithm)
-            else:
-                compressed_data = await self._compress_sync(data_bytes, algorithm)
-            
-            compressed_size = len(compressed_data)
-            compression_ratio = original_size / compressed_size if compressed_size > 0 else 1.0
-            
-            # Update statistics
-            self.stats.total_compressed += 1
-            self.stats.bytes_saved += (original_size - compressed_size)
-            self.stats.algorithm_usage[algorithm.value] = self.stats.algorithm_usage.get(algorithm.value, 0) + 1
-            
-            # Update algorithm performance tracking
-            compression_time = self.performance_monitor.end_timer(timer_id)
-            self._update_algorithm_performance(algorithm, compression_ratio, compression_time)
-            
-            # Cache result if beneficial
-            if (self.config.cache_compressed and 
-                compression_ratio > 1.2 and  # Only cache if good compression
-                len(self._compression_cache) < self._cache_max_size):
-                self._compression_cache[cache_key] = (compressed_data, algorithm)
-            
-            metadata = {
-                "original_size": original_size,
-                "compressed_size": compressed_size,
-                "compression_ratio": compression_ratio,
-                "algorithm": algorithm.value,
-                "compression_time": compression_time,
-                "cached": False
-            }
-            
-            self.logger.debug(
-                f"Compressed {original_size} bytes to {compressed_size} bytes "
-                f"({compression_ratio:.2f}x) using {algorithm.value}"
+        original_size = len(data_bytes)
+        
+        # Check size threshold
+        if original_size < self.min_size_threshold:
+            return CompressionResult(
+                algorithm=CompressionAlgorithm.NONE,
+                original_size=original_size,
+                compressed_size=original_size,
+                compression_ratio=1.0,
+                compression_time=0.0,
+                data=data_bytes
             )
             
-            return compressed_data, algorithm, metadata
+        # Select algorithm
+        if not algorithm:
+            algorithm = self._select_algorithm(data_bytes, content_type)
+            
+        # Perform compression
+        try:
+            compressed_data = self._compress_with_algorithm(data_bytes, algorithm)
+            compression_time = time.time() - start_time
+            
+            # Check if compression is beneficial
+            if len(compressed_data) >= original_size * 0.95:  # Less than 5% savings
+                return CompressionResult(
+                    algorithm=CompressionAlgorithm.NONE,
+                    original_size=original_size,
+                    compressed_size=original_size,
+                    compression_ratio=1.0,
+                    compression_time=compression_time,
+                    data=data_bytes
+                )
+                
+            compressed_size = len(compressed_data)
+            compression_ratio = original_size / compressed_size
+            
+            # Update statistics
+            self._update_compression_stats(
+                algorithm, original_size, compressed_size, compression_time
+            )
+            
+            return CompressionResult(
+                algorithm=algorithm,
+                original_size=original_size,
+                compressed_size=compressed_size,
+                compression_ratio=compression_ratio,
+                compression_time=compression_time,
+                data=compressed_data
+            )
             
         except Exception as e:
-            self.performance_monitor.end_timer(timer_id)
-            self.logger.error(f"Compression failed: {e}")
-            # Return original data on compression failure
-            return data_bytes, CompressionAlgorithm.NONE, {
-                "original_size": len(data_bytes),
-                "compressed_size": len(data_bytes),
-                "compression_ratio": 1.0,
-                "error": str(e)
-            }
-    
-    async def decompress_message(self, 
-                               compressed_data: bytes, 
-                               algorithm: CompressionAlgorithm) -> Tuple[bytes, Dict[str, Any]]:
+            logger.error(f"Compression failed with {algorithm.value}: {e}")
+            # Fallback to no compression
+            return CompressionResult(
+                algorithm=CompressionAlgorithm.NONE,
+                original_size=original_size,
+                compressed_size=original_size,
+                compression_ratio=1.0,
+                compression_time=time.time() - start_time,
+                data=data_bytes
+            )
+            
+    def decompress(
+        self,
+        compressed_data: bytes,
+        algorithm: CompressionAlgorithm
+    ) -> bytes:
         """
-        Decompress message data.
+        Decompress data using specified algorithm.
         
         Args:
-            compressed_data: Compressed data
+            compressed_data: Compressed data bytes
             algorithm: Algorithm used for compression
             
         Returns:
-            Tuple of (decompressed_data, metadata)
+            Decompressed data bytes
         """
         if algorithm == CompressionAlgorithm.NONE:
-            return compressed_data, {
-                "original_size": len(compressed_data),
-                "decompressed_size": len(compressed_data),
-                "decompression_time": 0.0
-            }
-        
-        timer_id = self.performance_monitor.start_timer("message_decompression")
-        
+            return compressed_data
+            
         try:
-            compressed_size = len(compressed_data)
-            
-            # Perform decompression
-            if self.config.enable_async and compressed_size > 50000:
-                decompressed_data = await self._decompress_async(compressed_data, algorithm)
-            else:
-                decompressed_data = await self._decompress_sync(compressed_data, algorithm)
-            
-            decompressed_size = len(decompressed_data)
-            decompression_time = self.performance_monitor.end_timer(timer_id)
-            
-            # Update statistics
-            self.stats.total_decompressed += 1
-            self.stats.decompression_time += decompression_time
-            
-            metadata = {
-                "compressed_size": compressed_size,
-                "decompressed_size": decompressed_size,
-                "decompression_time": decompression_time,
-                "algorithm": algorithm.value
-            }
-            
-            self.logger.debug(
-                f"Decompressed {compressed_size} bytes to {decompressed_size} bytes "
-                f"using {algorithm.value}"
+            decompressed_data = self._decompress_with_algorithm(
+                compressed_data, algorithm
             )
             
-            return decompressed_data, metadata
+            # Update statistics
+            self.compression_stats["total_decompressions"] += 1
+            
+            return decompressed_data
             
         except Exception as e:
-            self.performance_monitor.end_timer(timer_id)
-            self.logger.error(f"Decompression failed: {e}")
-            raise ValueError(f"Decompression failed with {algorithm.value}: {e}")
-    
-    async def _select_best_algorithm(self, data: bytes) -> CompressionAlgorithm:
+            logger.error(f"Decompression failed with {algorithm.value}: {e}")
+            raise
+            
+    def _select_algorithm(
+        self,
+        data: bytes,
+        content_type: Optional[str] = None
+    ) -> CompressionAlgorithm:
         """
-        Intelligently select the best compression algorithm based on data characteristics.
+        Automatically select best compression algorithm.
         
         Args:
-            data: Data to analyze
+            data: Data to compress
+            content_type: Content type hint
             
         Returns:
-            Best compression algorithm for the data
+            Selected compression algorithm
         """
+        if not self.auto_select:
+            return self.preferred_algorithm
+            
         data_size = len(data)
         
-        # For small data, use fast compression
-        if data_size < 5000:
-            return CompressionAlgorithm.GZIP
-        
-        # Analyze data characteristics
-        entropy = self._calculate_entropy(data[:1000])  # Sample first 1KB
-        
-        # High entropy data (already compressed/encrypted) - use fast algorithm
-        if entropy > 7.5:
-            return CompressionAlgorithm.GZIP
-        
-        # Low entropy data with repetitive patterns - use better compression
-        if entropy < 4.0:
-            if data_size > 100000:  # Large files benefit from LZMA
-                return CompressionAlgorithm.LZMA
+        # For very large data, prefer speed
+        if data_size > 10 * 1024 * 1024:  # > 10MB
+            return CompressionAlgorithm.LZ4
+            
+        # For real-time applications, prefer speed
+        if content_type == "realtime":
+            return CompressionAlgorithm.LZ4
+            
+        # For text/JSON, prefer compression ratio
+        if content_type in ["text", "json", "xml"]:
+            if data_size > 1024 * 1024:  # > 1MB
+                return CompressionAlgorithm.GZIP
             else:
-                return CompressionAlgorithm.BZ2
+                return CompressionAlgorithm.BROTLI
+                
+        # For binary data, use balanced approach
+        if content_type == "binary":
+            return CompressionAlgorithm.ZLIB
+            
+        # Default to preferred algorithm
+        return self.preferred_algorithm
         
-        # Medium entropy - balanced approach
-        return CompressionAlgorithm.ZLIB
-    
-    def _calculate_entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy of data sample."""
-        if not data:
-            return 0.0
+    def _compress_with_algorithm(
+        self,
+        data: bytes,
+        algorithm: CompressionAlgorithm
+    ) -> bytes:
+        """Compress data with specific algorithm."""
+        if algorithm == CompressionAlgorithm.GZIP:
+            config = self.algorithm_configs[algorithm]
+            return gzip.compress(data, compresslevel=config["compresslevel"])
+            
+        elif algorithm == CompressionAlgorithm.ZLIB:
+            config = self.algorithm_configs[algorithm]
+            return zlib.compress(data, level=config["level"])
+            
+        elif algorithm == CompressionAlgorithm.LZ4:
+            config = self.algorithm_configs[algorithm]
+            return lz4.frame.compress(
+                data,
+                compression_level=config["compression_level"]
+            )
+            
+        elif algorithm == CompressionAlgorithm.BROTLI:
+            config = self.algorithm_configs[algorithm]
+            return brotli.compress(data, quality=config["quality"])
+            
+        else:
+            raise ValueError(f"Unsupported compression algorithm: {algorithm}")
+            
+    def _decompress_with_algorithm(
+        self,
+        data: bytes,
+        algorithm: CompressionAlgorithm
+    ) -> bytes:
+        """Decompress data with specific algorithm."""
+        if algorithm == CompressionAlgorithm.GZIP:
+            return gzip.decompress(data)
+            
+        elif algorithm == CompressionAlgorithm.ZLIB:
+            return zlib.decompress(data)
+            
+        elif algorithm == CompressionAlgorithm.LZ4:
+            return lz4.frame.decompress(data)
+            
+        elif algorithm == CompressionAlgorithm.BROTLI:
+            return brotli.decompress(data)
+            
+        else:
+            raise ValueError(f"Unsupported decompression algorithm: {algorithm}")
+            
+    def _update_compression_stats(
+        self,
+        algorithm: CompressionAlgorithm,
+        original_size: int,
+        compressed_size: int,
+        compression_time: float
+    ):
+        """Update compression statistics."""
+        stats = self.compression_stats
+        stats["total_compressions"] += 1
+        stats["bytes_compressed"] += original_size
+        stats["bytes_saved"] += (original_size - compressed_size)
+        stats["algorithm_usage"][algorithm] += 1
         
-        # Count byte frequencies
-        freq = {}
-        for byte in data:
-            freq[byte] = freq.get(byte, 0) + 1
+        # Update average compression time
+        total_compressions = stats["total_compressions"]
+        current_avg = stats["avg_compression_time"]
+        stats["avg_compression_time"] = (
+            (current_avg * (total_compressions - 1) + compression_time) / 
+            total_compressions
+        )
         
-        # Calculate entropy
-        import math
-        entropy = 0.0
-        data_len = len(data)
+    async def middleware_handler(
+        self,
+        message: Dict[str, Any],
+        next_handler: Callable
+    ) -> Dict[str, Any]:
+        """
+        Middleware handler for message compression.
         
-        for count in freq.values():
-            probability = count / data_len
-            if probability > 0:
-                entropy -= probability * math.log2(probability)
+        Args:
+            message: Message to process
+            next_handler: Next middleware in chain
+            
+        Returns:
+            Processed message with compression metadata
+        """
+        # Check if compression is requested
+        compress_message = message.get("compress", True)
+        compression_algorithm = message.get("compression_algorithm")
+        content_type = message.get("content_type")
         
-        return entropy
-    
-    async def _compress_async(self, data: bytes, algorithm: CompressionAlgorithm) -> bytes:
-        """Compress data asynchronously."""
-        loop = asyncio.get_event_loop()
-        compressor = self._compressors[algorithm]
-        return await loop.run_in_executor(self.executor, compressor, data)
-    
-    async def _compress_sync(self, data: bytes, algorithm: CompressionAlgorithm) -> bytes:
-        """Compress data synchronously."""
-        compressor = self._compressors[algorithm]
-        return compressor(data)
-    
-    async def _decompress_async(self, data: bytes, algorithm: CompressionAlgorithm) -> bytes:
-        """Decompress data asynchronously."""
-        loop = asyncio.get_event_loop()
-        decompressor = self._decompressors[algorithm]
-        return await loop.run_in_executor(self.executor, decompressor, data)
-    
-    async def _decompress_sync(self, data: bytes, algorithm: CompressionAlgorithm) -> bytes:
-        """Decompress data synchronously."""
-        decompressor = self._decompressors[algorithm]
-        return decompressor(data)
-    
-    def _compress_gzip(self, data: bytes) -> bytes:
-        """Compress using gzip."""
-        return gzip.compress(data, compresslevel=self.config.level.value)
-    
-    def _decompress_gzip(self, data: bytes) -> bytes:
-        """Decompress using gzip."""
-        return gzip.decompress(data)
-    
-    def _compress_zlib(self, data: bytes) -> bytes:
-        """Compress using zlib."""
-        return zlib.compress(data, level=self.config.level.value)
-    
-    def _decompress_zlib(self, data: bytes) -> bytes:
-        """Decompress using zlib."""
-        return zlib.decompress(data)
-    
-    def _compress_bz2(self, data: bytes) -> bytes:
-        """Compress using bz2."""
-        return bz2.compress(data, compresslevel=self.config.level.value)
-    
-    def _decompress_bz2(self, data: bytes) -> bytes:
-        """Decompress using bz2."""
-        return bz2.decompress(data)
-    
-    def _compress_lzma(self, data: bytes) -> bytes:
-        """Compress using LZMA."""
-        return lzma.compress(data, preset=self.config.level.value)
-    
-    def _decompress_lzma(self, data: bytes) -> bytes:
-        """Decompress using LZMA."""
-        return lzma.decompress(data)
-    
-    def _get_cache_key(self, data: bytes, algorithm: Optional[CompressionAlgorithm]) -> str:
-        """Generate cache key for data and algorithm."""
-        import hashlib
-        data_hash = hashlib.md5(data).hexdigest()
-        alg_str = algorithm.value if algorithm else "auto"
-        return f"{data_hash}:{alg_str}:{self.config.level.value}"
-    
-    def _update_algorithm_performance(self, 
-                                    algorithm: CompressionAlgorithm, 
-                                    ratio: float, 
-                                    time_taken: float):
-        """Update algorithm performance statistics."""
-        perf = self._algorithm_performance[algorithm]
-        count = perf["count"]
+        if compress_message and "data" in message:
+            # Compress message data
+            result = self.compress(
+                data=message["data"],
+                algorithm=compression_algorithm,
+                content_type=content_type
+            )
+            
+            # Update message with compressed data
+            if result.algorithm != CompressionAlgorithm.NONE:
+                message["data"] = result.data
+                message["compression"] = {
+                    "algorithm": result.algorithm.value,
+                    "original_size": result.original_size,
+                    "compressed_size": result.compressed_size,
+                    "compression_ratio": result.compression_ratio,
+                    "compression_time": result.compression_time
+                }
+                
+                logger.debug(
+                    f"Compressed message: {result.original_size} -> "
+                    f"{result.compressed_size} bytes "
+                    f"({result.compression_ratio:.2f}x ratio) "
+                    f"using {result.algorithm.value}"
+                )
+                
+        # Process message through next handler
+        response = await next_handler(message)
         
-        # Update running averages
-        perf["avg_ratio"] = (perf["avg_ratio"] * count + ratio) / (count + 1)
-        perf["avg_time"] = (perf["avg_time"] * count + time_taken) / (count + 1)
-        perf["count"] = count + 1
-    
-    def get_compression_stats(self) -> Dict[str, Any]:
-        """Get comprehensive compression statistics."""
-        total_time = self.stats.compression_time + self.stats.decompression_time
+        # Decompress response if needed
+        if isinstance(response, dict) and "compression" in response:
+            compression_info = response["compression"]
+            algorithm = CompressionAlgorithm(compression_info["algorithm"])
+            
+            if algorithm != CompressionAlgorithm.NONE:
+                response["data"] = self.decompress(
+                    response["data"], algorithm
+                )
+                
+                # Remove compression metadata from final response
+                del response["compression"]
+                
+        return response
         
-        return {
-            "total_compressed": self.stats.total_compressed,
-            "total_decompressed": self.stats.total_decompressed,
-            "bytes_saved": self.stats.bytes_saved,
-            "compression_time": self.stats.compression_time,
-            "decompression_time": self.stats.decompression_time,
-            "total_time": total_time,
-            "algorithm_usage": dict(self.stats.algorithm_usage),
-            "cache_hits": self.stats.cache_hits,
-            "cache_misses": self.stats.cache_misses,
-            "cache_hit_rate": (
-                self.stats.cache_hits / (self.stats.cache_hits + self.stats.cache_misses)
-                if (self.stats.cache_hits + self.stats.cache_misses) > 0 else 0.0
-            ),
-            "algorithm_performance": {
-                alg.value: dict(perf) for alg, perf in self._algorithm_performance.items()
-                if perf["count"] > 0
-            }
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get compression statistics."""
+        stats = self.compression_stats.copy()
+        stats["algorithm_usage"] = {
+            alg.value: count for alg, count in stats["algorithm_usage"].items()
         }
-    
-    def clear_cache(self):
-        """Clear compression cache."""
-        cache_size = len(self._compression_cache)
-        self._compression_cache.clear()
-        self.logger.info(f"Cleared compression cache ({cache_size} entries)")
-    
-    def shutdown(self):
-        """Shutdown compression middleware and cleanup resources."""
-        if self.executor:
-            self.executor.shutdown(wait=True)
-        self.clear_cache()
-        self.logger.info("Compression middleware shutdown complete")
+        
+        # Calculate compression efficiency
+        if stats["bytes_compressed"] > 0:
+            stats["compression_efficiency"] = (
+                stats["bytes_saved"] / stats["bytes_compressed"]
+            )
+        else:
+            stats["compression_efficiency"] = 0.0
+            
+        return stats
+        
+    def reset_statistics(self):
+        """Reset compression statistics."""
+        self.compression_stats = {
+            "total_compressions": 0,
+            "total_decompressions": 0,
+            "bytes_compressed": 0,
+            "bytes_saved": 0,
+            "avg_compression_time": 0.0,
+            "algorithm_usage": {alg: 0 for alg in CompressionAlgorithm}
+        }
+        
+    def benchmark_algorithms(
+        self,
+        test_data: bytes,
+        iterations: int = 5
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Benchmark compression algorithms on test data.
+        
+        Args:
+            test_data: Data to use for benchmarking
+            iterations: Number of iterations to average
+            
+        Returns:
+            Benchmark results for each algorithm
+        """
+        results = {}
+        
+        for algorithm in CompressionAlgorithm:
+            if algorithm == CompressionAlgorithm.NONE:
+                continue
+                
+            total_compression_time = 0
+            total_decompression_time = 0
+            compressed_size = 0
+            
+            for _ in range(iterations):
+                # Compression benchmark
+                start_time = time.time()
+                compressed_data = self._compress_with_algorithm(test_data, algorithm)
+                compression_time = time.time() - start_time
+                
+                # Decompression benchmark
+                start_time = time.time()
+                self._decompress_with_algorithm(compressed_data, algorithm)
+                decompression_time = time.time() - start_time
+                
+                total_compression_time += compression_time
+                total_decompression_time += decompression_time
+                compressed_size = len(compressed_data)
+                
+            results[algorithm.value] = {
+                "avg_compression_time": total_compression_time / iterations,
+                "avg_decompression_time": total_decompression_time / iterations,
+                "compression_ratio": len(test_data) / compressed_size,
+                "compressed_size": compressed_size,
+                "original_size": len(test_data)
+            }
+            
+        return results
