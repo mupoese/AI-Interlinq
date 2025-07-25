@@ -5,10 +5,10 @@
 CLI components for AI-Interlinq framework.
 """
 
-from .benchmark import BenchmarkCLI
-from .monitor import MonitorCLI
+from .benchmark import BenchmarkSuite
+from .monitor import SystemMonitor
 
 __all__ = [
-    "BenchmarkCLI",
-    "MonitorCLI"
+    "BenchmarkSuite",
+    "SystemMonitor"
 ]
