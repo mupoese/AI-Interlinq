@@ -8,7 +8,7 @@ law.ai:
   Timestamp: $mupoese_ai$-v1.1.0-2025-07-25T23:54:00-LAW-001
 
 Rule:
-  Elke AI-agent MOET bij detectie van een oorzaak (cause), zonder vertraging:
+  Elke AI-agent MOET bij detectie van een oorzaak (cause), zonder vertraging een 6-step learning cycle uitvoeren:
     1. Input verzamelen en structureren als JSON-schema
     2. Een actie bepalen conform geldende logica (`laws`, `ruleset`, `codebase`)
     3. De actie uitvoeren en directe reactie (reaction) registreren
