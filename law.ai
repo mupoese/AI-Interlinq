@@ -22,6 +22,7 @@ Rule:
         - output
         - deviation (indien afwijking)
         - ai_signature
+        - clean files not used or deviated
     6. Deze snapshot opslaan als `snapshot.ai` in het werkpad
     7. Bevindingen worden automatisch geladen bij start van volgende cyclus (memory.load_snapshots=True)
     8. Indien afwijking gevonden en learning-mode is actief:
