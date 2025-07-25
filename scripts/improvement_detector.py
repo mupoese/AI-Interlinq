@@ -217,51 +217,76 @@ class ImprovementDetector:
         """Detect documentation gaps."""
         print("🔍 Detecting documentation gaps...")
         
-        # Check for undocumented functions and classes
-        for py_file in self.repository_path.glob("**/*.py"):
-            if "test" in str(py_file) or "__pycache__" in str(py_file):
+        # Limit to core modules to prevent timeout
+        target_dirs = ["ai_interlinq/core", "ai_interlinq"]
+        
+        for target_dir in target_dirs:
+            dir_path = self.repository_path / target_dir
+            if not dir_path.exists():
                 continue
                 
-            try:
-                with open(py_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            # Limit files processed to prevent timeout
+            py_files = list(dir_path.glob("*.py"))[:10]  # Process max 10 files
+            
+            for py_file in py_files:
+                if "test" in str(py_file) or "__pycache__" in str(py_file):
+                    continue
                     
-                # Simple check for functions without docstrings
-                import re
-                functions = re.findall(r'def\s+(\w+)\([^)]*\):', content)
-                for func in functions:
-                    if func.startswith('_'):  # Skip private functions
-                        continue
-                    if f'def {func}' in content and '"""' not in content[content.find(f'def {func}'):content.find(f'def {func}') + 200]:
-                        self.improvements.append(ImprovementOpportunity(
-                            type="documentation_gap",
-                            severity="LOW",
-                            description=f"Function '{func}' lacks documentation",
-                            file_path=str(py_file.relative_to(self.repository_path)),
-                            line_number=None,
-                            suggested_fix=f"Add docstring to function '{func}'",
-                            estimated_impact="Improved code documentation",
-                            law_001_compliant=True
-                        ))
-            except Exception as e:
-                print(f"⚠️ Error checking documentation in {py_file}: {e}")
+                try:
+                    with open(py_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                    # Simple check for functions without docstrings
+                    import re
+                    functions = re.findall(r'def\s+(\w+)\([^)]*\):', content)[:5]  # Check max 5 functions per file
+                    
+                    for func in functions:
+                        if func.startswith('_'):  # Skip private functions
+                            continue
+                        
+                        func_pos = content.find(f'def {func}')
+                        if func_pos != -1:
+                            # Check next 200 chars for docstring
+                            check_section = content[func_pos:func_pos + 200]
+                            if '"""' not in check_section:
+                                self.improvements.append(ImprovementOpportunity(
+                                    type="documentation_gap",
+                                    severity="LOW",
+                                    description=f"Function '{func}' lacks documentation",
+                                    file_path=str(py_file.relative_to(self.repository_path)),
+                                    line_number=None,
+                                    suggested_fix=f"Add docstring to function '{func}'",
+                                    estimated_impact="Improved code documentation",
+                                    law_001_compliant=True
+                                ))
+                                break  # Only report one per file to save time
+                                
+                except Exception as e:
+                    print(f"⚠️ Error checking documentation in {py_file}: {e}")
+                    continue
     
     def _scan_files_for_patterns(self, patterns: List[Dict], improvement_type: str) -> None:
         """Scan files for specific patterns."""
         import re
         
-        for py_file in self.repository_path.glob("**/*.py"):
+        # Limit to core files to prevent timeout
+        target_files = list(self.repository_path.glob("ai_interlinq/**/*.py"))[:20]  # Max 20 files
+        
+        for py_file in target_files:
             if "test" in str(py_file) or "__pycache__" in str(py_file):
                 continue
                 
             try:
                 with open(py_file, 'r', encoding='utf-8') as f:
                     content = f.read()
-                    lines = content.split('\n')
+                    
+                # Skip very large files to prevent timeout
+                if len(content) > 50000:  # Skip files larger than 50KB
+                    continue
                     
                 for pattern_info in patterns:
                     pattern = pattern_info['pattern']
-                    matches = re.finditer(pattern, content, re.MULTILINE)
+                    matches = list(re.finditer(pattern, content, re.MULTILINE))[:5]  # Max 5 matches per file
                     
                     for match in matches:
                         line_num = content[:match.start()].count('\n') + 1
@@ -275,8 +300,11 @@ class ImprovementDetector:
                             estimated_impact="Performance improvement",
                             law_001_compliant=True
                         ))
+                        break  # Only report one per pattern per file
+                        
             except Exception as e:
                 print(f"⚠️ Error scanning {py_file}: {e}")
+                continue
     
     def _check_circular_imports(self) -> None:
         """Check for circular import issues."""
