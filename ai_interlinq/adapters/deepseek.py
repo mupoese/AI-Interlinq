@@ -295,3 +295,31 @@ Be specific, actionable, and provide code examples where helpful."""
 
 ```{language}
 {code}
+```
+
+Please analyze this code according to the criteria above."""
+
+            response = await self.generate_response(prompt, system_prompt=system_prompt)
+            
+            # Cache the result
+            result = {
+                "analysis": response,
+                "timestamp": time.time(),
+                "language": language,
+                "analysis_type": analysis_type
+            }
+            self.code_analysis_cache[cache_key] = result
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Code analysis error: {e}")
+            return {
+                "error": str(e),
+                "timestamp": time.time(),
+                "language": language,
+                "analysis_type": analysis_type
+            }
+        finally:
+            # Restore original model
+            self.model = original_model
