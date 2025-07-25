@@ -1,0 +1,428 @@
+name: 'Code Quality Analysis'
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 */8 * * *'  # Every 8 hours
+  workflow_dispatch:
+    inputs:
+      full_analysis:
+        description: 'Run full comprehensive analysis'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  code-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install pylint black mypy bandit isort flake8 safety radon
+          pip install websockets asyncio-mqtt aioredis
+          pip install -e .
+      
+      - name: Run pylint analysis
+        continue-on-error: true
+        run: |
+          echo "🔍 Running pylint analysis..."
+          pylint ai_interlinq/ \
+            --output-format=json \
+            --reports=yes \
+            --score=yes \
+            --exit-zero > pylint-report.json
+          
+          # Generate human-readable report
+          pylint ai_interlinq/ \
+            --output-format=text \
+            --reports=yes \
+            --score=yes \
+            --exit-zero > pylint-report.txt
+      
+      - name: Run black formatting check
+        continue-on-error: true
+        run: |
+          echo "🎨 Checking code formatting with black..."
+          black --check --diff ai_interlinq/ > black-report.txt 2>&1 || true
+      
+      - name: Run isort import sorting check
+        continue-on-error: true
+        run: |
+          echo "📦 Checking import sorting with isort..."
+          isort --check-only --diff ai_interlinq/ > isort-report.txt 2>&1 || true
+      
+      - name: Run mypy type checking
+        continue-on-error: true
+        run: |
+          echo "🔍 Running type checking with mypy..."
+          mypy ai_interlinq/ \
+            --ignore-missing-imports \
+            --show-error-codes \
+            --show-error-context \
+            --pretty > mypy-report.txt 2>&1 || true
+      
+      - name: Run flake8 linting
+        continue-on-error: true
+        run: |
+          echo "🔍 Running flake8 linting..."
+          flake8 ai_interlinq/ \
+            --max-line-length=88 \
+            --max-complexity=10 \
+            --statistics \
+            --count > flake8-report.txt 2>&1 || true
+      
+      - name: Run bandit security analysis
+        continue-on-error: true
+        run: |
+          echo "🔒 Running security analysis with bandit..."
+          bandit -r ai_interlinq/ \
+            -f json \
+            -o bandit-report.json || true
+          
+          # Generate human-readable report
+          bandit -r ai_interlinq/ \
+            -f txt \
+            -o bandit-report.txt || true
+      
+      - name: Run safety dependency check
+        continue-on-error: true
+        run: |
+          echo "🛡️ Checking dependencies for security vulnerabilities..."
+          safety check \
+            --json \
+            --output safety-report.json || true
+          
+          safety check \
+            --output safety-report.txt || true
+      
+      - name: Run radon complexity analysis
+        if: github.event.inputs.full_analysis == 'true' || github.event_name == 'schedule'
+        continue-on-error: true
+        run: |
+          echo "📊 Running complexity analysis with radon..."
+          
+          # Cyclomatic complexity
+          radon cc ai_interlinq/ \
+            --json > radon-cc-report.json
+          
+          radon cc ai_interlinq/ \
+            --show-complexity \
+            --average > radon-cc-report.txt
+          
+          # Maintainability index
+          radon mi ai_interlinq/ \
+            --json > radon-mi-report.json
+          
+          radon mi ai_interlinq/ \
+            --show > radon-mi-report.txt
+          
+          # Halstead metrics
+          radon hal ai_interlinq/ \
+            --json > radon-hal-report.json
+          
+          radon hal ai_interlinq/ > radon-hal-report.txt
+      
+      - name: Analyze code metrics
+        run: |
+          echo "📈 Analyzing code metrics..."
+          
+          python -c "
+          import json
+          import os
+          from pathlib import Path
+          
+          metrics = {
+              'timestamp': '$(date -u)',
+              'commit': '${{ github.sha }}',
+              'branch': '${{ github.ref_name }}',
+              'trigger': '${{ github.event_name }}',
+              'analysis_results': {}
+          }
+          
+          # Process pylint results
+          if os.path.exists('pylint-report.json'):
+              try:
+                  with open('pylint-report.json', 'r') as f:
+                      pylint_data = json.load(f)
+                  
+                  issues_by_type = {}
+                  for issue in pylint_data:
+                      issue_type = issue.get('type', 'unknown')
+                      issues_by_type[issue_type] = issues_by_type.get(issue_type, 0) + 1
+                  
+                  metrics['analysis_results']['pylint'] = {
+                      'total_issues': len(pylint_data),
+                      'issues_by_type': issues_by_type
+                  }
+              except Exception as e:
+                  print(f'Error processing pylint results: {e}')
+          
+          # Process bandit results
+          if os.path.exists('bandit-report.json'):
+              try:
+                  with open('bandit-report.json', 'r') as f:
+                      bandit_data = json.load(f)
+                  
+                  metrics['analysis_results']['bandit'] = {
+                      'total_issues': len(bandit_data.get('results', [])),
+                      'high_severity': len([r for r in bandit_data.get('results', []) if r.get('issue_severity') == 'HIGH']),
+                      'medium_severity': len([r for r in bandit_data.get('results', []) if r.get('issue_severity') == 'MEDIUM']),
+                      'low_severity': len([r for r in bandit_data.get('results', []) if r.get('issue_severity') == 'LOW'])
+                  }
+              except Exception as e:
+                  print(f'Error processing bandit results: {e}')
+          
+          # Count lines of code
+          total_lines = 0
+          python_files = 0
+          for py_file in Path('ai_interlinq').glob('**/*.py'):
+              if '__pycache__' not in str(py_file):
+                  try:
+                      with open(py_file, 'r', encoding='utf-8') as f:
+                          lines = len(f.readlines())
+                          total_lines += lines
+                          python_files += 1
+                  except Exception:
+                      pass
+          
+          metrics['code_stats'] = {
+              'total_lines': total_lines,
+              'python_files': python_files,
+              'average_lines_per_file': total_lines / python_files if python_files > 0 else 0
+          }
+          
+          # Save metrics
+          with open('code-metrics.json', 'w') as f:
+              json.dump(metrics, f, indent=2)
+          
+          print(f'Code analysis complete:')
+          print(f'- Python files: {python_files}')
+          print(f'- Total lines: {total_lines}')
+          print(f'- Analysis results: {len(metrics[\"analysis_results\"])} tools')
+          "
+      
+      - name: Generate quality report
+        run: |
+          echo "📊 Generating quality report..."
+          
+          cat > quality-report.md << 'EOF'
+          # Code Quality Analysis Report
+          
+          **Generated:** $(date -u)
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+          **Trigger:** ${{ github.event_name }}
+          
+          ## Summary
+          
+          EOF
+          
+          if [ -f code-metrics.json ]; then
+            python -c "
+            import json
+            with open('code-metrics.json', 'r') as f:
+                data = json.load(f)
+            
+            print(f'- **Python files analyzed:** {data[\"code_stats\"][\"python_files\"]}')
+            print(f'- **Total lines of code:** {data[\"code_stats\"][\"total_lines\"]}')
+            print(f'- **Average lines per file:** {data[\"code_stats\"][\"average_lines_per_file\"]:.1f}')
+            print()
+            
+            results = data.get('analysis_results', {})
+            if 'pylint' in results:
+                pylint = results['pylint']
+                print(f'### Pylint Analysis')
+                print(f'- **Total issues:** {pylint[\"total_issues\"]}')
+                for issue_type, count in pylint[\"issues_by_type\"].items():
+                    print(f'- **{issue_type.title()}:** {count}')
+                print()
+            
+            if 'bandit' in results:
+                bandit = results['bandit']
+                print(f'### Security Analysis (Bandit)')
+                print(f'- **Total security issues:** {bandit[\"total_issues\"]}')
+                print(f'- **High severity:** {bandit[\"high_severity\"]}')
+                print(f'- **Medium severity:** {bandit[\"medium_severity\"]}')
+                print(f'- **Low severity:** {bandit[\"low_severity\"]}')
+                print()
+            " >> quality-report.md
+          fi
+          
+          echo "## Tool Reports" >> quality-report.md
+          echo "" >> quality-report.md
+          
+          if [ -f pylint-report.txt ]; then
+            echo "### Pylint Report" >> quality-report.md
+            echo "\`\`\`" >> quality-report.md
+            tail -n 20 pylint-report.txt >> quality-report.md
+            echo "\`\`\`" >> quality-report.md
+            echo "" >> quality-report.md
+          fi
+          
+          if [ -f black-report.txt ] && [ -s black-report.txt ]; then
+            echo "### Black Formatting Issues" >> quality-report.md
+            echo "\`\`\`" >> quality-report.md
+            head -n 50 black-report.txt >> quality-report.md
+            echo "\`\`\`" >> quality-report.md
+            echo "" >> quality-report.md
+          fi
+          
+          if [ -f mypy-report.txt ] && [ -s mypy-report.txt ]; then
+            echo "### MyPy Type Checking" >> quality-report.md
+            echo "\`\`\`" >> quality-report.md
+            head -n 50 mypy-report.txt >> quality-report.md
+            echo "\`\`\`" >> quality-report.md
+            echo "" >> quality-report.md
+          fi
+          
+          echo "Quality analysis report generated"
+      
+      - name: Check quality gates
+        id: quality-gates
+        run: |
+          echo "🚦 Checking quality gates..."
+          
+          quality_score=100
+          issues=()
+          
+          # Check pylint score if available
+          if [ -f pylint-report.json ]; then
+            pylint_issues=$(python -c "import json; data=json.load(open('pylint-report.json')); print(len([i for i in data if i.get('type') in ['error', 'warning']]))")
+            if [ "$pylint_issues" -gt 20 ]; then
+              quality_score=$((quality_score - 20))
+              issues+=("Too many pylint issues: $pylint_issues")
+            fi
+          fi
+          
+          # Check security issues
+          if [ -f bandit-report.json ]; then
+            security_issues=$(python -c "import json; data=json.load(open('bandit-report.json')); print(len([r for r in data.get('results', []) if r.get('issue_severity') in ['HIGH', 'MEDIUM']]))")
+            if [ "$security_issues" -gt 0 ]; then
+              quality_score=$((quality_score - 30))
+              issues+=("Security issues found: $security_issues")
+            fi
+          fi
+          
+          # Check code formatting
+          if [ -f black-report.txt ] && [ -s black-report.txt ]; then
+            quality_score=$((quality_score - 10))
+            issues+=("Code formatting issues detected")
+          fi
+          
+          echo "quality_score=$quality_score" >> $GITHUB_OUTPUT
+          
+          if [ ${#issues[@]} -gt 0 ]; then
+            echo "quality_issues=${issues[*]}" >> $GITHUB_OUTPUT
+            echo "has_issues=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_issues=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Quality score: $quality_score/100"
+          if [ "$quality_score" -lt 70 ]; then
+            echo "::warning::Quality score below threshold (70): $quality_score"
+          fi
+      
+      - name: LAW-001 compliance snapshot
+        run: |
+          echo "📸 Creating LAW-001 compliance snapshot..."
+          
+          python -c "
+          import json
+          import time
+          
+          snapshot = {
+              'context': 'Code quality analysis completed',
+              'input': {
+                  'trigger': '${{ github.event_name }}',
+                  'full_analysis': '${{ github.event.inputs.full_analysis }}',
+                  'ref': '${{ github.ref }}'
+              },
+              'action': 'Comprehensive code quality analysis',
+              'applied_law': 'LAW-001',
+              'reaction': 'Analysis completed with quality score: ${{ steps.quality-gates.outputs.quality_score }}',
+              'output': {
+                  'quality_score': '${{ steps.quality-gates.outputs.quality_score }}',
+                  'has_issues': '${{ steps.quality-gates.outputs.has_issues }}' == 'true',
+                  'analysis_complete': True
+              },
+              'deviation': 'Quality issues detected' if '${{ steps.quality-gates.outputs.has_issues }}' == 'true' else None,
+              'ai_signature': 'code_analysis_workflow_v1.0',
+              'timestamp': time.time()
+          }
+          
+          with open('analysis_snapshot.ai', 'w') as f:
+              json.dump(snapshot, f, indent=2)
+          
+          print('LAW-001 analysis snapshot created')
+          "
+      
+      - name: Upload analysis artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-analysis-results
+          path: |
+            pylint-report.json
+            pylint-report.txt
+            black-report.txt
+            isort-report.txt
+            mypy-report.txt
+            flake8-report.txt
+            bandit-report.json
+            bandit-report.txt
+            safety-report.json
+            safety-report.txt
+            radon-*.json
+            radon-*.txt
+            code-metrics.json
+            quality-report.md
+            analysis_snapshot.ai
+          retention-days: 30
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            if (fs.existsSync('quality-report.md')) {
+              const report = fs.readFileSync('quality-report.md', 'utf8');
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 📊 Code Quality Analysis\n\n${report}\n\n---\n*Generated by Code Quality Analysis workflow*`
+              });
+            }
+      
+      - name: Fail on critical quality issues
+        if: steps.quality-gates.outputs.quality_score < 50
+        run: |
+          echo "::error::Critical quality issues detected. Quality score: ${{ steps.quality-gates.outputs.quality_score }}/100"
+          echo "Issues: ${{ steps.quality-gates.outputs.quality_issues }}"
+          exit 1

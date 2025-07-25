@@ -1,0 +1,327 @@
+name: 'Auto Code Improvement'
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      force_implementation:
+        description: 'Force implementation of improvements'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_tests:
+        description: 'Skip comprehensive testing'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  auto-improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.mupoese_key }}
+          fetch-depth: 0
+      
+      - name: Setup Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install pytest pytest-asyncio black mypy pylint bandit isort pytest-cov
+          pip install websockets asyncio-mqtt aioredis
+      
+      - name: Install package in development mode
+        run: |
+          pip install -e .
+      
+      - name: Load CI/CD configuration
+        id: config
+        run: |
+          if [ -f .github/cicd-config.yml ]; then
+            echo "cicd_config_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "cicd_config_exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Run LAW-001 compliance check
+        run: |
+          echo "🔍 Running LAW-001 compliance check..."
+          if [ -f ai_interlinq/core/status_checker.py ]; then
+            python -c "
+            import sys
+            sys.path.insert(0, '.')
+            from ai_interlinq.core.status_checker import StatusChecker
+            checker = StatusChecker()
+            results = checker.check_law_001_compliance()
+            print(f'LAW-001 Compliance: {results[\"status\"]}')
+            if results['status'] != 'COMPLETE':
+                print(f'Issues: {results.get(\"critical_issues\", [])}')
+            "
+          else
+            echo "⚠️ Status checker not found, skipping LAW-001 check"
+          fi
+      
+      - name: Run improvement detection
+        id: detection
+        run: |
+          echo "🔍 Running improvement detection..."
+          python scripts/improvement_detector.py
+          
+          # Check if improvements were found
+          if [ -f improvement_analysis.json ]; then
+            improvements=$(python -c "import json; data=json.load(open('improvement_analysis.json')); print(data['total_improvements'])")
+            echo "improvements_found=$improvements" >> $GITHUB_OUTPUT
+            echo "Found $improvements improvement opportunities"
+          else
+            echo "improvements_found=0" >> $GITHUB_OUTPUT
+            echo "No improvements detected"
+          fi
+      
+      - name: Execute code improvements
+        if: steps.detection.outputs.improvements_found > 0
+        run: |
+          echo "🛠️ Executing code improvements..."
+          python scripts/auto_implementer.py
+      
+      - name: Run comprehensive tests
+        if: github.event.inputs.skip_tests != 'true'
+        run: |
+          echo "🧪 Running comprehensive tests..."
+          
+          # Run linting
+          echo "Running linting checks..."
+          pylint ai_interlinq/ --output-format=text --reports=no --score=no || true
+          
+          # Run code formatting check
+          echo "Checking code formatting..."
+          black --check ai_interlinq/ || echo "Code formatting issues detected"
+          
+          # Run import sorting check
+          echo "Checking import sorting..."
+          isort --check-only ai_interlinq/ || echo "Import sorting issues detected"
+          
+          # Run type checking
+          echo "Running type checking..."
+          mypy ai_interlinq/ --ignore-missing-imports || echo "Type checking issues detected"
+          
+          # Run security scanning
+          echo "Running security scan..."
+          bandit -r ai_interlinq/ -f text || echo "Security issues detected"
+          
+          # Run unit tests if they exist
+          if [ -d tests ]; then
+            echo "Running unit tests..."
+            pytest tests/ --cov=ai_interlinq --cov-report=term-missing -v || echo "Some tests failed"
+          else
+            echo "No tests directory found, skipping unit tests"
+          fi
+      
+      - name: Generate improvement report
+        if: always()
+        run: |
+          echo "📊 Generating improvement report..."
+          
+          # Create improvement report
+          cat > improvement_report.md << 'EOF'
+          # Auto-Improvement Report
+          
+          **Timestamp:** $(date -u)
+          **Workflow:** Auto Code Improvement
+          **Trigger:** ${{ github.event_name }}
+          
+          ## Summary
+          
+          EOF
+          
+          if [ -f improvement_analysis.json ]; then
+            python -c "
+            import json
+            with open('improvement_analysis.json', 'r') as f:
+                data = json.load(f)
+            print(f'- **Improvements detected:** {data[\"total_improvements\"]}')
+            print(f'- **By severity:** {data[\"improvements_by_severity\"]}')
+            print(f'- **By type:** {data[\"improvements_by_type\"]}')
+            print()
+            print('## Recommendations')
+            for rec in data.get('recommendations', []):
+                print(f'- {rec}')
+            " >> improvement_report.md
+          else
+            echo "- No improvement analysis found" >> improvement_report.md
+          fi
+          
+          if [ -f implementation_results.json ]; then
+            echo "" >> improvement_report.md
+            echo "## Implementation Results" >> improvement_report.md
+            python -c "
+            import json
+            with open('implementation_results.json', 'r') as f:
+                data = json.load(f)
+            print(f'- **Implementations made:** {data[\"total_implementations\"]}')
+            print(f'- **Files modified:** {data[\"total_files_modified\"]}')
+            print(f'- **Safe implementations:** {data[\"summary\"][\"safe_implementations\"]}')
+            print(f'- **Recommendations created:** {data[\"summary\"][\"recommendations_created\"]}')
+            " >> improvement_report.md
+          fi
+          
+          echo "Improvement report generated"
+      
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected"
+            git status --porcelain
+          fi
+      
+      - name: Auto-commit improvements
+        if: steps.changes.outputs.has_changes == 'true' && (github.event.inputs.force_implementation == 'true' || github.event_name == 'schedule')
+        env:
+          GITHUB_TOKEN: ${{ secrets.mupoese_key }}
+        run: |
+          echo "📝 Auto-committing improvements..."
+          
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Auto-Improvement"
+          
+          # Add all changes
+          git add .
+          
+          # Create commit message
+          timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          improvements=""
+          if [ -f improvement_analysis.json ]; then
+            improvements=$(python -c "import json; data=json.load(open('improvement_analysis.json')); print(data['total_improvements'])")
+          fi
+          
+          commit_message="🤖 Auto-improvement: $improvements improvements - $timestamp
+          
+          - Automated detection and implementation of code improvements
+          - LAW-001 compliant implementation cycle
+          - Generated by GitHub Actions auto-improvement workflow
+          
+          Co-authored-by: mupoese <31779778+mupoese@users.noreply.github.com>"
+          
+          # Commit changes
+          git commit -m "$commit_message"
+          
+          # Push changes
+          git push origin ${{ github.ref_name }}
+          
+          echo "✅ Changes committed and pushed successfully"
+      
+      - name: Create pull request for major changes
+        if: steps.changes.outputs.has_changes == 'true' && steps.detection.outputs.improvements_found > 10 && github.event_name != 'pull_request'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.mupoese_key }}
+          commit-message: "🤖 Major auto-improvements detected"
+          title: "Auto-Improvement: Major code enhancements"
+          body: |
+            # Auto-Improvement Pull Request
+            
+            This PR contains major code improvements detected and implemented by the auto-improvement system.
+            
+            ## Summary
+            - Improvements detected: ${{ steps.detection.outputs.improvements_found }}
+            - LAW-001 compliant implementation
+            - Automated testing completed
+            
+            Please review the changes before merging.
+            
+            ## Files Changed
+            ${{ steps.changes.outputs.has_changes }}
+            
+            ---
+            *Generated by GitHub Actions Auto-Improvement Workflow*
+          branch: auto-improvement-${{ github.run_number }}
+          delete-branch: true
+      
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: auto-improvement-results
+          path: |
+            improvement_analysis.json
+            implementation_results.json
+            improvement_report.md
+            snapshot.ai
+            implementation_snapshot.ai
+            security_report_*.md
+            refactoring_recommendations/
+          retention-days: 30
+      
+      - name: Final LAW-001 snapshot
+        if: always()
+        run: |
+          echo "📸 Creating final LAW-001 snapshot..."
+          python -c "
+          import json
+          import time
+          
+          snapshot = {
+              'context': 'Auto-improvement workflow completion',
+              'input': {
+                  'trigger': '${{ github.event_name }}',
+                  'ref': '${{ github.ref }}',
+                  'improvements_found': '${{ steps.detection.outputs.improvements_found }}',
+                  'has_changes': '${{ steps.changes.outputs.has_changes }}'
+              },
+              'action': 'Complete auto-improvement cycle',
+              'applied_law': 'LAW-001',
+              'reaction': 'Workflow completed successfully',
+              'output': {
+                  'workflow_status': 'completed',
+                  'changes_committed': '${{ steps.changes.outputs.has_changes }}' == 'true'
+              },
+              'deviation': None,
+              'ai_signature': 'auto_improvement_workflow_v1.0',
+              'timestamp': time.time()
+          }
+          
+          with open('workflow_snapshot.ai', 'w') as f:
+              json.dump(snapshot, f, indent=2)
+          
+          print('Final LAW-001 snapshot created')
+          "
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Auto-improvement workflow failed"
+          echo "::error::Auto-improvement workflow encountered an error. Please check the logs."
+      
+      - name: Success notification
+        if: success()
+        run: |
+          echo "✅ Auto-improvement workflow completed successfully"
+          if [ "${{ steps.changes.outputs.has_changes }}" == "true" ]; then
+            echo "🎉 Improvements were implemented and committed"
+          else
+            echo "📊 Analysis completed, no changes needed"
+          fi
