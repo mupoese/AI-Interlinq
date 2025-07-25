@@ -1,5 +1,6 @@
-### ai_interlinq/config.py
-```python
+# File: /ai_interlinq/config.py
+# Directory: /ai_interlinq
+
 """Configuration management for AI-Interlinq."""
 
 import os
@@ -79,5 +80,4 @@ class Config:
 
 # Default configuration instance
 default_config = Config()
-```
 

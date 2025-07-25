@@ -1,5 +1,6 @@
-### ai_interlinq/exceptions.py
-```python
+# File: /ai_interlinq/exceptions.py
+# Directory: /ai_interlinq
+
 """Custom exceptions for AI-Interlinq."""
 
 
@@ -38,6 +39,11 @@ class ConnectionError(AIInterlinqError):
     pass
 
 
+class TransportError(AIInterlinqError):
+    """Raised when transport operations fail."""
+    pass
+
+
 class TimeoutError(AIInterlinqError):
     """Raised when operations timeout."""
     pass
@@ -51,4 +57,3 @@ class ValidationError(AIInterlinqError):
 class ConfigurationError(AIInterlinqError):
     """Raised when configuration is invalid."""
     pass
-```

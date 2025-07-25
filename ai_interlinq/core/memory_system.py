@@ -550,3 +550,7 @@ class AdvancedMemorySystem:
 class SecurityError(Exception):
     """Security-related error in memory system."""
     pass
+
+
+# Alias for backward compatibility
+MemorySystem = AdvancedMemorySystem
