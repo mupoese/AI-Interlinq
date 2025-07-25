@@ -52,8 +52,8 @@ from .utils.performance import PerformanceMonitor
 from .utils.serializer import MessageSerializer
 
 # CLI imports
-from .cli.benchmark import BenchmarkCLI
-from .cli.monitor import MonitorCLI
+from .cli.benchmark import BenchmarkSuite
+from .cli.monitor import SystemMonitor
 
 __all__ = [
     # Core
@@ -88,8 +88,8 @@ __all__ = [
     "MessageSerializer",
     
     # CLI
-    "BenchmarkCLI",
-    "MonitorCLI"
+    "BenchmarkSuite",
+    "SystemMonitor"
 ]
 
 # Add RedisTransport if available

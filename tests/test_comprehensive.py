@@ -13,7 +13,7 @@ from typing import Dict, Any
 
 from ai_interlinq import (
     TokenManager, EncryptionHandler, CommunicationProtocol, MessageHandler,
-    AdvancedMemorySystem, PerformanceMonitor, MessageSerializer, MessageParser
+    MemorySystem, PerformanceMonitor, MessageSerializer
 )
 from ai_interlinq.core.communication_protocol import MessageType, Priority, Message
 
@@ -240,12 +240,12 @@ class TestMessageHandler:
         assert handled_messages[0].payload.command == "test_command"
 
 
-class TestAdvancedMemorySystem:
+class TestMemorySystem:
     """Test advanced memory system."""
     
     def setup_method(self):
         """Setup for each test."""
-        self.memory = AdvancedMemorySystem("test_agent", ":memory:")  # In-memory SQLite
+        self.memory = MemorySystem("test_agent", ":memory:")  # In-memory SQLite
     
     def test_snapshot_creation(self):
         """Test memory snapshot creation."""
@@ -294,4 +294,4 @@ class TestAdvancedMemorySystem:
         """Test memory statistics."""
         # Create some data
         self.memory.create_snapshot({"test": "data1"}, ["tag1"])
-        self.memory.create_snapshot({"test": "data2
+        self.memory.create_snapshot({"test": "data2"}, ["tag2"])
