@@ -12,7 +12,7 @@ Verifies all LAW-001 dependencies are met:
 
 import json
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 from .memory_loader import MemoryLoader
 from .snapshot_manager import SnapshotManager

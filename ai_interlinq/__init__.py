@@ -38,14 +38,7 @@ from .middleware.compression import CompressionMiddleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.rate_limiter import RateLimiterMiddleware
 
-# Adapter imports
-from .adapters.anthropic import AnthropicAdapter
-from .adapters.openai import OpenAIAdapter
-from .adapters.ollama import OllamaAdapter
-from .adapters.deepseek import DeepSeekAdapter
-from .adapters.gemini import GeminiAdapter
-from .adapters.grok import GrokAdapter
-from .adapters.huggingface import HuggingFaceAdapter
+# Adapter imports removed - not connected to core LAW-001 system
 
 # Utility imports
 from .utils.performance import PerformanceMonitor
@@ -74,14 +67,7 @@ __all__ = [
     "MetricsMiddleware",
     "RateLimiterMiddleware",
     
-    # Adapters
-    "AnthropicAdapter",
-    "OpenAIAdapter",
-    "OllamaAdapter",
-    "DeepSeekAdapter", 
-    "GeminiAdapter",
-    "GrokAdapter",
-    "HuggingFaceAdapter",
+    # Adapters removed - not connected to core LAW-001 system
     
     # Utils
     "PerformanceMonitor",
