@@ -23,7 +23,14 @@ from .core.memory_system import MemorySystem
 from .transport.base import BaseTransport
 from .transport.websocket import WebSocketTransport
 from .transport.tcp import TCPTransport
-from .transport.redis import RedisTransport
+
+# Optional redis import
+try:
+    from .transport.redis import RedisTransport
+    _redis_available = True
+except (ImportError, TypeError):
+    RedisTransport = None
+    _redis_available = False
 
 # Middleware imports
 from .middleware.auth import AuthMiddleware
@@ -60,7 +67,6 @@ __all__ = [
     "BaseTransport",
     "WebSocketTransport",
     "TCPTransport", 
-    "RedisTransport",
     
     # Middleware
     "AuthMiddleware",
@@ -85,3 +91,7 @@ __all__ = [
     "BenchmarkCLI",
     "MonitorCLI"
 ]
+
+# Add RedisTransport if available
+if _redis_available:
+    __all__.append("RedisTransport")
