@@ -9,7 +9,7 @@ Provides integration with OpenAI models including GPT-4, GPT-3.5, and function c
 import asyncio
 import json
 import time
-from typing import Dict, Any, List, Optional, AsyncGenerator, Union
+from typing import Dict, Any, List, Optional, AsyncGenerator, Union, Callable
 from dataclasses import dataclass
 import logging
 import httpx
