@@ -1,0 +1,130 @@
+name: 'Auto Version Control and Documentation Update'
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      changes_summary:
+        description: 'Summary of changes for this version'
+        required: false
+        default: 'Automated version control update'
+      increment_type:
+        description: 'Version increment type'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  LAW_COMPLIANCE: 'LAW-001'
+  AUTO_VERSION: true
+
+jobs:
+  version-control-commit:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'AUTO-COMMIT') && !contains(github.event.head_commit.message, 'chore: auto-update')"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest
+      
+      - name: Create memory directories
+        run: |
+          mkdir -p memory/snapshots  
+      
+      - name: Verify LAW-001 compliance
+        run: |
+          python law001_verification.py
+      
+      - name: Update law.ai version
+        run: |
+          python scripts/version_control.py --verify-only
+          echo "✅ LAW-001 compliance verified"
+      
+      - name: Update documentation
+        run: |
+          python scripts/doc_updater.py
+          echo "✅ Documentation updated"
+      
+      - name: Run functional tests
+        run: |
+          python law001_functional_test.py
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected after automation"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected after automation"
+          fi
+      
+      - name: Commit automated changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          
+          # Determine changes summary
+          CHANGES_SUMMARY="${{ github.event.inputs.changes_summary }}"
+          if [ -z "$CHANGES_SUMMARY" ]; then
+            CHANGES_SUMMARY="Automated version control and documentation update"
+          fi
+          
+          # Create comprehensive commit message
+          TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          COMMIT_MSG="chore: auto-update versions and documentation [$TIMESTAMP]
+
+          - Automated law.ai version synchronization
+          - Documentation updates and version references
+          - LAW-001 compliance verification passed
+          - Changes: $CHANGES_SUMMARY
+          
+          Version: 1.2.0
+          Timestamp: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          User: mupoese (automated)
+          LAW-001: COMPLIANT
+          Systems: Version Control, Documentation, Compliance"
+          
+          git commit -m "$COMMIT_MSG"
+      
+      - name: Push changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git push
+          echo "✅ Changes pushed successfully"
+      
+      - name: Create summary
+        run: |
+          echo "## 🚀 Auto Version Control Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **LAW-001 Compliance**: ✅ VERIFIED" >> $GITHUB_STEP_SUMMARY
+          echo "- **Documentation**: ✅ UPDATED" >> $GITHUB_STEP_SUMMARY  
+          echo "- **Version**: 1.2.0" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changes Committed**: ${{ steps.check_changes.outputs.has_changes }}" >> $GITHUB_STEP_SUMMARY

@@ -46,6 +46,43 @@ law.ai is a comprehensive AI governance and learning framework that implements t
 - **📊 Compliance Monitoring**: Real-time LAW-001 compliance verification
 - **🔐 Immutable Laws**: Core laws cannot be overridden without proper authorization
 
+
+## 🔄 CI/CD Automation
+
+AI-Interlinq includes comprehensive CI/CD automation with law.ai integration:
+
+### Automated Systems
+- **🤖 Auto-Commit Workflows**: Continuous integration with automatic commits
+- **📊 Code Analysis**: Automated code quality and security analysis
+- **🧪 Comprehensive Testing**: Full test suite execution with LAW-001 compliance
+- **📈 Performance Monitoring**: Automated benchmarking and performance tracking
+- **🚀 Release Automation**: Automated version management and releases
+- **📝 Documentation Sync**: Automatic documentation updates with code changes
+
+### Version Control Automation
+The system includes automatic version control for law.ai updates:
+
+```bash
+# Manual version control execution
+python scripts/version_control.py --changes "your changes" --increment minor
+
+# Automatic documentation updates
+python scripts/doc_updater.py
+
+# Verify LAW-001 compliance
+python scripts/version_control.py --verify-only
+```
+
+### CI/CD Workflows
+- **Auto-Commit**: `.github/workflows/auto-commit.yml`
+- **Code Analysis**: `.github/workflows/code-analysis.yml`
+- **Comprehensive Testing**: `.github/workflows/comprehensive-testing.yml`
+- **Monitoring**: `.github/workflows/monitoring.yml`
+- **Benchmarking**: `.github/workflows/benchmark.yml`
+- **Release**: `.github/workflows/release.yml`
+
+All workflows maintain full LAW-001 compliance and integrate with the law.ai governance system.
+
 ## 📦 Installation
 
 ### Standard Installation

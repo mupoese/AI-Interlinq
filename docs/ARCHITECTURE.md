@@ -1009,3 +1009,87 @@ This architecture ensures high performance, security, and compliance while maint
 For implementation details, see [API_REFERENCE.md](API_REFERENCE.md)
 
 For usage instructions, see [LAW_AI_USAGE_GUIDE.md](LAW_AI_USAGE_GUIDE.md)
+## CI/CD Pipeline Architecture
+
+### Automation System Overview
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Code Changes  │───▶│  Version Control │───▶│  Documentation  │
+│                 │    │   Automation     │    │  Synchronization│
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                                ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  LAW-001        │◀───│   CI/CD Pipeline │───▶│   Deployment    │
+│  Compliance     │    │   Execution      │    │   Automation    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+### Core Components
+
+#### 1. Version Control Automation
+- **LawVersionController**: Manages law.ai version updates
+- **Git Integration**: Automated commit and push operations
+- **Semantic Versioning**: Automatic version increments
+- **Change Tracking**: Comprehensive change documentation
+
+#### 2. Documentation Pipeline
+- **DocumentationUpdater**: Synchronizes all *.md files
+- **Version References**: Updates version numbers across docs
+- **API Documentation**: Auto-generates API references
+- **Architecture Updates**: Maintains system documentation
+
+#### 3. CI/CD Workflows
+- **Auto-Commit**: `.github/workflows/auto-commit.yml`
+- **Testing Pipeline**: Comprehensive test execution
+- **Code Analysis**: Quality and security checks
+- **Performance Monitoring**: Automated benchmarking
+- **Release Management**: Version-based releases
+
+#### 4. LAW-001 Integration
+- **Compliance Verification**: Automatic LAW-001 checks
+- **Governance Workflow**: Integration with law.ai governance
+- **Snapshot Management**: Execution state tracking
+- **Pattern Detection**: Systematic deviation monitoring
+
+### Workflow Execution
+
+#### Standard Development Cycle
+1. **Code Change Detection**: Git hooks trigger automation
+2. **Version Analysis**: Determine version increment type
+3. **Law.ai Update**: Update version and timestamp
+4. **Documentation Sync**: Update all markdown files
+5. **Compliance Check**: Verify LAW-001 requirements
+6. **Automated Commit**: Commit with proper versioning
+7. **CI/CD Pipeline**: Execute comprehensive testing
+8. **Deployment**: Automated release if tests pass
+
+#### Emergency Updates
+1. **Manual Trigger**: `python scripts/version_control.py`
+2. **Immediate Compliance**: Skip some checks for urgent fixes
+3. **Post-Update Verification**: Complete compliance check
+4. **Documentation Catch-up**: Sync documentation after emergency
+
+### Integration Points
+
+#### GitHub Actions
+- Secure authentication with mupoese_key
+- Automated workflow triggers
+- Status reporting and notifications
+- Failure handling and rollback
+
+#### Law.ai Governance
+- Automatic governance compliance
+- Vote tracking for major changes
+- Audit trail maintenance
+- Pattern detection integration
+
+#### Monitoring Systems
+- Performance metrics collection
+- Error tracking and alerting
+- Usage analytics
+- Compliance reporting
+
+Last updated: 2025-07-25 16:48:35 UTC
+Architecture version: 1.2.0

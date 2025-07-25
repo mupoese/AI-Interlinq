@@ -1,0 +1,27 @@
+#!/bin/bash
+# Pre-commit hook for automatic law.ai version control
+# Runs before every commit to update versions and documentation
+
+echo "🚀 Running law.ai version control automation..."
+
+# Check if this is an automated commit to avoid infinite loops
+if git log -1 --pretty=%B | grep -q "AUTO-COMMIT\|chore: auto-update"; then
+    echo "ℹ️ Automated commit detected, skipping pre-commit automation"
+    exit 0
+fi
+
+# Run version control automation (without commit to avoid recursion)
+python3 scripts/version_control.py --verify-only
+if [ $? -ne 0 ]; then
+    echo "❌ LAW-001 compliance verification failed"
+    exit 1
+fi
+
+echo "📚 Updating documentation..."
+python3 scripts/doc_updater.py
+if [ $? -ne 0 ]; then
+    echo "⚠️ Documentation update had issues, but continuing..."
+fi
+
+echo "✅ Pre-commit automation completed successfully"
+exit 0

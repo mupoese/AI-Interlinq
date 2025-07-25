@@ -648,3 +648,156 @@ If you encounter issues not covered here:
 ---
 
 **law.ai System Usage Guide** • Version 1.1.0 • LAW-001 Compliant ✅
+## Automation and Version Control Usage
+
+### Automatic Version Control
+
+The law.ai system includes comprehensive automation for version management:
+
+#### Basic Usage
+```bash
+# Run full automation update
+python scripts/version_control.py
+
+# Custom changes summary
+python scripts/version_control.py --changes "Add new feature X"
+
+# Specify version increment type
+python scripts/version_control.py --increment major --changes "Breaking changes"
+
+# Custom commit message
+python scripts/version_control.py --message "feat: add amazing feature"
+
+# Verify compliance only
+python scripts/version_control.py --verify-only
+```
+
+#### Documentation Synchronization
+```bash
+# Update all documentation
+python scripts/doc_updater.py
+
+# The system automatically:
+# - Updates version references in all *.md files
+# - Synchronizes API documentation
+# - Updates architecture diagrams
+# - Maintains usage examples
+```
+
+### CI/CD Integration with LAW-001
+
+#### Automated Workflows
+The system provides several automated workflows:
+
+```yaml
+# .github/workflows/auto-version-commit.yml
+# Triggers on code changes and automatically:
+# 1. Updates law.ai version
+# 2. Synchronizes documentation
+# 3. Commits changes with proper versioning
+# 4. Maintains LAW-001 compliance
+```
+
+#### Example Integration
+```python
+from ai_interlinq.core.learning_cycle import LearningCycle
+from scripts.version_control import LawVersionController
+
+async def automated_development_cycle():
+    # Initialize systems
+    learning_cycle = LearningCycle()
+    version_controller = LawVersionController()
+    
+    # Execute LAW-001 compliant development cycle
+    result = await learning_cycle.execute_cycle(
+        cause="code_change_detected",
+        input_data={
+            "changes": "New feature implementation",
+            "automation_enabled": True,
+            "version_control": True
+        }
+    )
+    
+    # Automatic version management
+    version_controller.run_full_update(
+        changes_summary="Implement new feature with LAW-001 compliance",
+        increment_type="minor"
+    )
+    
+    return result
+```
+
+### Best Practices for Automation
+
+#### Version Control
+1. **Semantic Versioning**:
+   - `major`: Breaking changes requiring governance approval
+   - `minor`: New features maintaining backward compatibility
+   - `patch`: Bug fixes and minor improvements
+
+2. **Change Documentation**:
+   - Always provide meaningful change summaries
+   - Document impact on LAW-001 compliance
+   - Include governance considerations
+
+3. **Compliance Verification**:
+   - Run verification before major changes
+   - Address compliance issues immediately
+   - Maintain audit trail integrity
+
+#### Governance Integration
+```python
+# Example: Major change requiring governance approval
+from governance.voting_system import VotingSystem
+
+async def major_change_with_governance():
+    voting_system = VotingSystem()
+    
+    # Propose major change
+    proposal = await voting_system.create_proposal(
+        title="Major Architecture Change",
+        description="Implement new automation system",
+        change_type="major",
+        requires_approval=True
+    )
+    
+    # Wait for approval before proceeding
+    if await voting_system.wait_for_approval(proposal.id):
+        # Proceed with automated version control
+        controller = LawVersionController()
+        success = controller.run_full_update(
+            changes_summary="Major architecture update with governance approval",
+            increment_type="major"
+        )
+        
+        if success:
+            await voting_system.mark_proposal_implemented(proposal.id)
+```
+
+### Monitoring and Maintenance
+
+#### Automated Monitoring
+The system continuously monitors:
+- LAW-001 compliance status
+- Version synchronization across components
+- Documentation consistency
+- Automation system health
+
+#### Maintenance Commands
+```bash
+# Check system status
+python scripts/version_control.py --verify-only
+
+# Full system health check
+python law001_verification.py
+
+# Run functional tests
+python law001_functional_test.py
+
+# Performance monitoring
+python -m ai_interlinq.cli.monitor --automation-status
+```
+
+Last updated: 2025-07-25 16:48:35 UTC
+Usage guide version: 1.2.0
+LAW-001 Status: COMPLIANT ✅

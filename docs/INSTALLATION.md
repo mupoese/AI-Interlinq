@@ -823,3 +823,89 @@ SECURITY_CONFIG = {
 For usage instructions, see [LAW_AI_USAGE_GUIDE.md](LAW_AI_USAGE_GUIDE.md)
 
 For API details, see [API_REFERENCE.md](API_REFERENCE.md)
+## Automation System Setup
+
+### Version Control Automation
+
+After basic installation, set up the automation system:
+
+```bash
+# Ensure scripts are executable
+chmod +x scripts/version_control.py
+chmod +x scripts/doc_updater.py
+
+# Test automation system
+python scripts/version_control.py --verify-only
+
+# Run initial documentation sync
+python scripts/doc_updater.py
+```
+
+### CI/CD Integration
+
+For full CI/CD automation:
+
+1. **Git Hooks Setup**:
+```bash
+# Copy pre-commit hook
+cp .github/hooks/pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+2. **GitHub Actions Configuration**:
+- Ensure `mupoese_key` secret is configured in repository settings
+- Verify all workflow files in `.github/workflows/` are present
+- Test workflows with initial commit
+
+3. **Automation Verification**:
+```bash
+# Test full automation cycle
+python scripts/version_control.py --changes "Test automation setup"
+
+# Verify LAW-001 compliance
+python law001_verification.py
+
+# Run functional tests
+python law001_functional_test.py
+```
+
+### Environment Variables
+
+For automation to work properly, set these environment variables:
+
+```bash
+export GITHUB_TOKEN="your_github_token"  # For GitHub integration
+export LAW_COMPLIANCE="LAW-001"          # Compliance framework
+export AUTO_VERSION="true"               # Enable version automation
+```
+
+### Troubleshooting Automation
+
+Common issues and solutions:
+
+1. **Version Control Issues**:
+```bash
+# Reset version control state
+git checkout law.ai
+python scripts/version_control.py --changes "Reset automation"
+```
+
+2. **Documentation Sync Problems**:
+```bash
+# Force documentation update
+python scripts/doc_updater.py
+git add . && git commit -m "docs: sync documentation"
+```
+
+3. **LAW-001 Compliance Failures**:
+```bash
+# Check compliance status
+python law001_verification.py
+
+# Fix common compliance issues
+mkdir -p memory/snapshots
+python -c "from ai_interlinq.core.learning_cycle import LearningCycle; LearningCycle().verify_compliance()"
+```
+
+Installation guide version: 1.2.0
+Last updated: 2025-07-25 16:48:35 UTC

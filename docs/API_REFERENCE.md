@@ -868,3 +868,68 @@ Structure for governance proposals:
 For implementation examples, see [LAW_AI_USAGE_GUIDE.md](LAW_AI_USAGE_GUIDE.md)
 
 For system architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md)
+## Version Control Automation API
+
+### LawVersionController
+
+The `LawVersionController` class provides automated version management:
+
+```python
+from scripts.version_control import LawVersionController
+
+# Initialize controller
+controller = LawVersionController()
+
+# Update law.ai version
+controller.update_law_version("Changes summary", "minor")
+
+# Update package version
+controller.update_package_version()
+
+# Verify LAW-001 compliance
+controller.verify_law_compliance()
+
+# Full automation run
+controller.run_full_update(
+    changes_summary="Your changes",
+    increment_type="minor",
+    commit_message="feat: your feature"
+)
+```
+
+### DocumentationUpdater
+
+The `DocumentationUpdater` class handles automatic documentation synchronization:
+
+```python
+from scripts.doc_updater import DocumentationUpdater
+
+# Initialize updater
+updater = DocumentationUpdater()
+
+# Update all documentation
+updater.update_all_documentation()
+
+# Update specific files
+updater.update_readme()
+updater.update_api_reference()
+updater.update_architecture()
+```
+
+### Automation Methods
+
+#### Version Control
+- `update_law_version(changes_summary, increment_type)`: Update law.ai version
+- `update_package_version()`: Synchronize package version
+- `verify_law_compliance()`: Run LAW-001 compliance checks
+- `commit_changes(message)`: Automated git commits
+
+#### Documentation Management
+- `update_all_documentation()`: Update all markdown files
+- `update_readme()`: Update README with latest features
+- `update_api_reference()`: Update API documentation
+- `update_architecture()`: Update architecture docs
+- `update_law_ai_usage_guide()`: Update usage examples
+
+Last updated: 2025-07-25 16:48:35 UTC
+Version: 1.2.0
