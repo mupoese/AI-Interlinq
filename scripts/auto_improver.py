@@ -830,7 +830,7 @@ Co-authored-by: mupoese <31779778+mupoese@users.noreply.github.com>"""
         report = {
             'timestamp': datetime.utcnow().isoformat(),
             'law_compliance': 'LAW-001',
-            'analysis': asdict(self.analysis_results),
+            'analysis': self._serialize_analysis_results(self.analysis_results),
             'summary': {
                 'total_files': self.analysis_results.total_files_analyzed,
                 'total_suggestions': len(self.analysis_results.suggestions),
@@ -866,6 +866,34 @@ Co-authored-by: mupoese <31779778+mupoese@users.noreply.github.com>"""
             })
         
         return report
+    
+    def _serialize_analysis_results(self, results: AnalysisResult) -> Dict[str, Any]:
+        """Convert AnalysisResult to JSON-serializable format."""
+        serialized_suggestions = []
+        for suggestion in results.suggestions:
+            serialized_suggestions.append({
+                'type': suggestion.type.value,
+                'priority': suggestion.priority.value,
+                'title': suggestion.title,
+                'description': suggestion.description,
+                'file_path': suggestion.file_path,
+                'line_number': suggestion.line_number,
+                'suggested_fix': suggestion.suggested_fix,
+                'auto_fixable': suggestion.auto_fixable,
+                'requires_testing': suggestion.requires_testing,
+                'law_compliance_impact': suggestion.law_compliance_impact,
+                'estimated_effort': suggestion.estimated_effort,
+                'confidence_score': suggestion.confidence_score
+            })
+        
+        return {
+            'timestamp': results.timestamp,
+            'total_files_analyzed': results.total_files_analyzed,
+            'suggestions': serialized_suggestions,
+            'metrics': results.metrics,
+            'overall_health_score': results.overall_health_score,
+            'law_compliance_status': results.law_compliance_status
+        }
 
 
 def main():
